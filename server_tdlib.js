@@ -232,17 +232,17 @@ async function findVideos(dramaId, limit) {
     // Usually bot sends Ep1, then Ep2. So newer messages are higher eps.
 }
 
-// Compress Logic - AGGRESSIVE: Scale to 480p with high compression
+// Compress Logic - Scale to 960p with compression
 function compressVideo(input, output) {
     return new Promise((resolve, reject) => {
-        console.log(`[FFMPEG] Compressing ${input} -> ${output} (480p, CRF 35)`);
-        // -vf scale=-2:480 = scale to 480p height (auto width, divisible by 2)
+        console.log(`[FFMPEG] Compressing ${input} -> ${output} (960p, CRF 35)`);
+        // -vf scale=-2:960 = scale to 960p height (auto width, divisible by 2)
         // -crf 35 = aggressive compression (lower quality, much smaller size)
         // -preset fast = good speed/compression balance
         // -c:a aac -b:a 64k = compress audio to 64kbps AAC
         const ffmpeg = spawn("ffmpeg", [
             "-i", input,
-            "-vf", "scale=-2:480",
+            "-vf", "scale=-2:960",
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "35",
