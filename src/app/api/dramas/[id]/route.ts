@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVideosFromDB } from "@/lib/telegram";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
 
 export async function GET(
     request: NextRequest,
@@ -11,32 +10,54 @@ export async function GET(
     const { id } = await params;
 
     try {
-        console.log(`Getting videos for drama: ${id}`);
+        console.log(`Getting drama info for ID: ${id}`);
 
-        // Get videos from database (scraped data)
-        const videos = await getVideosFromDB(id);
+        // Get drama from database
+        const { data: drama, error } = await supabaseAdmin
+            .from("dramas")
+            .select("*")
+            .eq("id", id)
+            .single();
 
-        console.log(`Found ${videos.length} videos in database`);
+        if (error || !drama) {
+            return NextResponse.json({
+                dramaId: id,
+                title: `Drama ${id}`,
+                videos: [],
+                total: 0,
+                message: "Drama not found in database. Import the JSON data first.",
+            });
+        }
+
+        // Generate episode list based on total_episodes
+        const episodes = drama.total_episodes || 0;
+        const videos = [];
+
+        for (let i = 1; i <= episodes; i++) {
+            videos.push({
+                episode: i,
+                title: `Episode ${i}`,
+                // We don't have messageId yet - user needs to trigger from Telegram
+                // For now, we just show the count
+            });
+        }
 
         return NextResponse.json({
             dramaId: id,
-            videos: videos.map((v) => ({
-                messageId: v.messageId,
-                title: `Episode ${v.episodeNum}`,
-                episode: v.episodeNum,
-                size: v.fileSize,
-                duration: v.duration,
-                mimeType: v.mimeType,
-            })),
-            total: videos.length,
+            title: drama.title,
+            posterUrl: drama.poster_url,
+            videos,
+            total: episodes,
             source: "database",
+            message: episodes > 0
+                ? `Found ${episodes} episodes`
+                : "No episodes indexed. Trigger this drama from Telegram first.",
         });
     } catch (error) {
-        console.error("Get videos error:", error);
+        console.error("Get drama error:", error);
         return NextResponse.json(
             {
-                error: "Failed to get drama videos",
-                message: error instanceof Error ? error.message : "Unknown error",
+                error: "Failed to get drama info",
                 videos: [],
             },
             { status: 500 }

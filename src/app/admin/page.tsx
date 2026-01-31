@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
     Users,
     Film,
     Settings,
     LogOut,
-    Search,
-    Trash2,
     Shield,
     Activity,
     RefreshCw,
@@ -19,6 +17,8 @@ import {
     Loader2,
     Check,
     X,
+    Upload,
+    FileJson,
 } from "lucide-react";
 
 interface User {
@@ -29,7 +29,7 @@ interface User {
     created_at: string;
 }
 
-interface SyncStatus {
+interface ImportStatus {
     loading: boolean;
     success?: boolean;
     message?: string;
@@ -46,12 +46,15 @@ export default function AdminPage() {
 
     const [activeTab, setActiveTab] = useState("dashboard");
     const [users, setUsers] = useState<User[]>([]);
-    const [syncStatus, setSyncStatus] = useState<SyncStatus>({ loading: false });
+    const [importStatus, setImportStatus] = useState<ImportStatus>({ loading: false });
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalDramas: 0,
         totalVideos: 0,
     });
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
     // Check session on mount
     useEffect(() => {
@@ -67,7 +70,6 @@ export default function AdminPage() {
         setLoginError("");
         setLoginLoading(true);
 
-        // Simple auth check
         if (username === "admin" && password === "G@cor123") {
             sessionStorage.setItem("admin_session", "authenticated");
             setIsLoggedIn(true);
@@ -86,7 +88,6 @@ export default function AdminPage() {
     };
 
     const loadData = async () => {
-        // Load users from API
         try {
             const res = await fetch("/api/admin/users");
             if (res.ok) {
@@ -98,7 +99,6 @@ export default function AdminPage() {
             console.error(err);
         }
 
-        // Load stats
         try {
             const res = await fetch("/api/admin/stats");
             if (res.ok) {
@@ -110,32 +110,53 @@ export default function AdminPage() {
         }
     };
 
-    const syncTelegram = async () => {
-        setSyncStatus({ loading: true, message: "Syncing Telegram chat..." });
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setSelectedFile(file);
+        }
+    };
+
+    const handleImport = async () => {
+        if (!selectedFile) return;
+
+        setImportStatus({ loading: true, message: "Reading file..." });
+
         try {
-            const res = await fetch("/api/admin/sync", { method: "POST" });
-            const data = await res.json();
+            const text = await selectedFile.text();
+            const data = JSON.parse(text);
+
+            setImportStatus({ loading: true, message: "Uploading to server..." });
+
+            const res = await fetch("/api/admin/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data),
+            });
+
+            const result = await res.json();
 
             if (res.ok) {
-                setSyncStatus({
+                setImportStatus({
                     loading: false,
                     success: true,
-                    message: data.message,
-                    count: data.count,
+                    message: result.message,
+                    count: result.imported,
                 });
+                setSelectedFile(null);
                 loadData();
             } else {
-                setSyncStatus({
+                setImportStatus({
                     loading: false,
                     success: false,
-                    message: data.error || "Sync failed",
+                    message: result.error || "Import failed",
                 });
             }
         } catch (err) {
-            setSyncStatus({
+            setImportStatus({
                 loading: false,
                 success: false,
-                message: "Network error",
+                message: err instanceof Error ? err.message : "Failed to parse JSON",
             });
         }
     };
@@ -143,7 +164,7 @@ export default function AdminPage() {
     const tabs = [
         { id: "dashboard", label: "Dashboard", icon: Activity },
         { id: "users", label: "Users", icon: Users },
-        { id: "sync", label: "Sync Data", icon: Database },
+        { id: "import", label: "Import Data", icon: Upload },
         { id: "settings", label: "Settings", icon: Settings },
     ];
 
@@ -378,42 +399,93 @@ export default function AdminPage() {
                     </div>
                 )}
 
-                {/* Sync Tab */}
-                {activeTab === "sync" && (
+                {/* Import Tab */}
+                {activeTab === "import" && (
                     <div>
-                        <h2 className="text-2xl font-bold mb-6">Sync Telegram Data</h2>
+                        <h2 className="text-2xl font-bold mb-6">Import Data dari JSON</h2>
                         <div className="glass-card p-6 max-w-xl">
                             <p className="text-gray-400 mb-6">
-                                Sync drama data dari chat Telegram ke database untuk pencarian lebih cepat dan akses video.
+                                Upload file JSON dari automation script (format: final_progress.json).
+                                File harus berisi <code className="text-cyan-400">dramas_done</code> array.
                             </p>
 
+                            {/* File Upload */}
+                            <div className="mb-6">
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".json"
+                                    onChange={handleFileSelect}
+                                    className="hidden"
+                                />
+
+                                <div
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center cursor-pointer hover:border-cyan-500/50 transition-colors"
+                                >
+                                    {selectedFile ? (
+                                        <div className="flex items-center justify-center gap-3">
+                                            <FileJson className="w-8 h-8 text-cyan-400" />
+                                            <div className="text-left">
+                                                <p className="font-medium">{selectedFile.name}</p>
+                                                <p className="text-sm text-gray-500">
+                                                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Upload className="w-10 h-10 text-gray-500 mx-auto mb-3" />
+                                            <p className="text-gray-400">Klik untuk pilih file JSON</p>
+                                            <p className="text-xs text-gray-600 mt-1">atau drag & drop</p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Import Button */}
                             <button
-                                onClick={syncTelegram}
-                                disabled={syncStatus.loading}
-                                className="btn-primary flex items-center gap-2"
+                                onClick={handleImport}
+                                disabled={!selectedFile || importStatus.loading}
+                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {syncStatus.loading ? (
+                                {importStatus.loading ? (
                                     <Loader2 className="w-5 h-5 animate-spin" />
                                 ) : (
-                                    <RefreshCw className="w-5 h-5" />
+                                    <Upload className="w-5 h-5" />
                                 )}
-                                Sync Now
+                                Import Data
                             </button>
 
-                            {syncStatus.message && (
+                            {/* Status */}
+                            {importStatus.message && (
                                 <div
-                                    className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${syncStatus.success
+                                    className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${importStatus.success
                                             ? "bg-green-500/20 text-green-400"
                                             : "bg-red-500/20 text-red-400"
                                         }`}
                                 >
-                                    {syncStatus.success ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
-                                    <span>{syncStatus.message}</span>
-                                    {syncStatus.count !== undefined && (
-                                        <span className="ml-auto font-bold">{syncStatus.count} items</span>
+                                    {importStatus.success ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                                    <span>{importStatus.message}</span>
+                                    {importStatus.count !== undefined && (
+                                        <span className="ml-auto font-bold">{importStatus.count} dramas</span>
                                     )}
                                 </div>
                             )}
+
+                            {/* Instructions */}
+                            <div className="mt-6 p-4 bg-white/5 rounded-lg">
+                                <h4 className="font-medium text-cyan-400 mb-2">Format JSON:</h4>
+                                <pre className="text-xs text-gray-400 overflow-x-auto">
+                                    {`{
+  "dramas_done": [
+    { "id": "10600", "title": "...", "episodes": 4 },
+    { "id": "10599", "title": "...", "episodes": 3 }
+  ],
+  "total_videos": 38717
+}`}
+                                </pre>
+                            </div>
                         </div>
                     </div>
                 )}
