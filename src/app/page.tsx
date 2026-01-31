@@ -459,15 +459,16 @@ function HomeContent() {
                               {video.ready && selectedDrama ? (
                                 <>
                                   {/* Play via watch page - hides direct EC2 URL */}
-                                  <a
-                                    href={`/watch?d=${selectedDrama.id}&e=${video.episode}&t=${encodeURIComponent(selectedDrama.title)}`}
+                                  {/* Play via watch page - hides direct EC2 URL */}
+                                  <Link
+                                    href={`/watch/${selectedDrama.id}/${video.episode}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="w-full py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"
                                     title="Play langsung (new tab)"
                                   >
                                     <Play className="w-3 h-3" /> Play (Fast)
-                                  </a>
+                                  </Link>
                                   <a
                                     href={`/api/dramas/${selectedDrama.id}/download/${video.episode}`}
                                     download
