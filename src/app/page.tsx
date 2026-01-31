@@ -320,8 +320,8 @@ function HomeContent() {
           <motion.form onSubmit={handleSearch} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="max-w-xl mx-auto relative">
             <input type="text" value={query} onChange={(e) => handleQueryChange(e.target.value)} placeholder="Cari judul drama..." className="input-cyber w-full py-4 px-5 pr-32 text-lg" />
             {query && (
-              <button type="button" onClick={clearQuery} className="absolute right-[88px] top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" title="Clear search">
-                <X className="w-4 h-4" />
+              <button type="button" onClick={clearQuery} className="absolute right-[20%] top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" title="Clear search">
+                <X className="w-5 h-5" />
               </button>
             )}
             <button type="submit" className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-5 flex items-center gap-2" disabled={loading}>
