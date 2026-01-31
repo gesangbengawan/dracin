@@ -307,17 +307,19 @@ async function startDownloadLoop() {
                 continue;
             }
 
+            let wasInterrupted = false;
             for (let i = 0; i < videos.length; i++) {
+                // Check for interrupt BEFORE starting each episode download
                 if (shouldInterrupt && priorityQueue.length > 0) {
-                    console.log("Interrupting...");
+                    console.log(`[INTERRUPT] Pausing ${drama.id} to process priority queue...`);
                     shouldInterrupt = false;
+                    wasInterrupted = true;
+                    // Re-queue this drama to resume later (add to front of a "resume" queue or just let it be picked up again)
+                    // Since we use completedDramas to skip, and we haven't added this one yet, it will be re-processed.
                     break;
                 }
 
                 const v = videos[i];
-                // Episode mapping: If we found videos, how do we map to ep1, ep2?
-                // Just assume Order found = Order episodes? 
-                // Usually bot replies: Ep 1, Ep 2...
                 const ep = i + 1;
                 const finalPath = path.join(dir, `ep${ep}.mp4`);
                 if (fs.existsSync(finalPath)) continue;
@@ -325,23 +327,23 @@ async function startDownloadLoop() {
                 const rawPath = path.join(VIDEO_DIR, `${drama.id}_raw_${ep}.mp4`);
 
                 // Download
+                console.log(`[DOWNLOAD] ${drama.id} Ep ${ep}...`);
                 await downloadFile(v.fileId, rawPath);
 
                 // Compress
+                console.log(`[COMPRESS] ${drama.id} Ep ${ep}...`);
                 await compressVideo(rawPath, finalPath);
                 fs.unlinkSync(rawPath);
-
-                // Sync Supabase (optional)
+                console.log(`[DONE] ${drama.id} Ep ${ep} saved.`);
             }
-            if (!isPriority) {
+
+            // Only mark as complete if NOT interrupted and NOT priority
+            if (!wasInterrupted && !isPriority) {
                 progress.completedDramas.push(drama.id);
                 saveProgress(progress);
             }
         } catch (e) {
             console.error(e);
-            if (e.message === "INTERRUPTED") {
-                // Handle interrupt
-            }
         }
         await new Promise(r => setTimeout(r, 2000));
     }
