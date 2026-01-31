@@ -415,8 +415,14 @@ app.get('/api/queue', (req, res) => {
         current: current ? { ...current, status: "Downloading" } : null,
         upcoming: upcoming,
         totalQueued: dramas.length - progress.completedDramas.length,
-        priorityQueue: priorityQueue,
-        requestQueue: requestQueue
+        priorityQueue: priorityQueue.map(id => {
+            const d = dramas.find(x => x.id === id);
+            return { id, title: d?.title || `Drama ${id}` };
+        }),
+        requestQueue: requestQueue.map(id => {
+            const d = dramas.find(x => x.id === id);
+            return { id, title: d?.title || `Drama ${id}` };
+        })
     });
 });
 app.get('/api/status', (req, res) => res.json({ status: "running", engine: "TDLib", authState }));
