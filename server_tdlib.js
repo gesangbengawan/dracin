@@ -84,6 +84,9 @@ client.on('update', update => {
 // --- API ---
 app.use(cors());
 app.use(express.json());
+// Serve compressed videos statically under /stream path
+// This allows: http://EC2_IP:3001/stream/{dramaId}/ep{n}.mp4
+app.use('/stream', express.static(COMPRESSED_DIR));
 
 // Auth Endpoints
 app.get('/api/auth/status', (req, res) => res.json({ status: authState }));

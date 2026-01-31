@@ -396,18 +396,25 @@ function HomeContent() {
                   <button onClick={() => setSelectedDrama(null)} className="p-2 hover:bg-white/10 rounded-lg"><X className="w-6 h-6" /></button>
                 </div>
 
-                {/* Video Player - Auto aspect ratio for portrait/landscape */}
+                {/* Video Player Replacement - Direct Play New Tab */}
                 {(playingVideo || playingEpisode) && (
-                  <div className="mb-4 rounded-xl overflow-hidden bg-black flex items-center justify-center" style={{ maxHeight: "70vh" }}>
-                    <video
-                      key={`${playingVideo}-${playingEpisode}`}
-                      controls
-                      autoPlay
-                      playsInline
-                      className="max-w-full max-h-[70vh]"
-                      style={{ objectFit: "contain" }}
-                      src={getVideoSrc()}
-                    />
+                  <div className="mb-4 rounded-xl overflow-hidden bg-black flex flex-col items-center justify-center aspect-video relative group">
+                    {selectedDrama.poster_url && (
+                      <div className="absolute inset-0 opacity-30 blur-sm bg-cover bg-center" style={{ backgroundImage: `url(${selectedDrama.poster_url})` }} />
+                    )}
+                    <div className="relative z-10 flex flex-col items-center">
+                      <Play className="w-16 h-16 text-cyan-400 mb-4 animate-pulse" />
+                      <h3 className="text-xl font-bold mb-2">Episode {playingEpisode} siap</h3>
+                      <p className="text-gray-300 text-sm mb-6 max-w-xs text-center">Klik tombol di bawah untuk memutar video di tab baru (Player Native).</p>
+                      <a
+                        href={`/api/stream/${selectedDrama.id}/${playingEpisode}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-primary py-3 px-8 flex items-center gap-2 text-lg hover:scale-105 transition-transform"
+                      >
+                        <Play className="w-5 h-5 fill-current" /> Putar Sekarang
+                      </a>
+                    </div>
                   </div>
                 )}
 
