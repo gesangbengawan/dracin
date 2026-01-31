@@ -366,19 +366,18 @@ export default function HomePage() {
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                       {videos.map((video) => (
-                        <button
+                        <div
                           key={video.messageId}
-                          onClick={() => setPlayingVideo(video.messageId)}
-                          className={`p-3 rounded-lg text-left transition-all ${playingVideo === video.messageId
-                              ? "bg-cyan-500/30 border border-cyan-500"
-                              : "bg-white/5 hover:bg-white/10 border border-transparent"
+                          className={`p-3 rounded-lg transition-all ${playingVideo === video.messageId
+                            ? "bg-cyan-500/30 border border-cyan-500"
+                            : "bg-white/5 hover:bg-white/10 border border-transparent"
                             }`}
                         >
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-2">
                             <Play className={`w-3 h-3 ${playingVideo === video.messageId ? "text-cyan-400" : "text-gray-400"}`} />
-                            <span className="font-medium text-sm">{video.title}</span>
+                            <span className="font-medium text-sm flex-1">{video.title}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
                             {video.duration > 0 && (
                               <span className="flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
@@ -389,7 +388,23 @@ export default function HomePage() {
                               <span>{formatSize(video.size)}</span>
                             )}
                           </div>
-                        </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setPlayingVideo(video.messageId)}
+                              className="flex-1 py-1.5 px-2 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"
+                            >
+                              <Play className="w-3 h-3" /> Play
+                            </button>
+                            <a
+                              href={`/api/download/${video.messageId}`}
+                              download
+                              className="py-1.5 px-3 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs flex items-center justify-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Download className="w-3 h-3" />
+                            </a>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
