@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { streamVideo, getVideoInfo } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Allow 60s for video streaming
+export const maxDuration = 60;
 
 export async function GET(
     request: NextRequest,
@@ -16,19 +16,12 @@ export async function GET(
     }
 
     try {
+        console.log(`Streaming video: ${msgId}`);
+
         // Get video info first
         const info = await getVideoInfo(msgId);
         if (!info) {
             return NextResponse.json({ error: "Video not found" }, { status: 404 });
-        }
-
-        // Check for range request
-        const range = request.headers.get("range");
-
-        if (range) {
-            // For range requests, we need to handle partial content
-            // For simplicity, we'll stream the full video
-            // (Proper range support requires knowing file size upfront)
         }
 
         // Create readable stream
@@ -57,7 +50,7 @@ export async function GET(
     } catch (error) {
         console.error("Stream error:", error);
         return NextResponse.json(
-            { error: "Failed to stream video" },
+            { error: "Failed to stream video", details: String(error) },
             { status: 500 }
         );
     }

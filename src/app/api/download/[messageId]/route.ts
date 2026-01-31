@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTelegramClient } from "@/lib/telegram";
+import { downloadVideo, getVideoInfo } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-const BOT_USERNAME = "IDShortBot";
 
 export async function GET(
     request: NextRequest,
@@ -18,40 +16,39 @@ export async function GET(
     }
 
     try {
-        const client = await getTelegramClient();
-        const bot = await client.getEntity(BOT_USERNAME);
+        console.log(`Downloading video: ${msgId}`);
 
-        const messages = await client.getMessages(bot, { ids: [msgId] });
-        if (!messages.length || !messages[0].media) {
+        // Get video info first
+        const info = await getVideoInfo(msgId);
+        if (!info) {
             return NextResponse.json({ error: "Video not found" }, { status: 404 });
         }
 
-        const msg = messages[0];
-        const media = msg.media as any;
-        const mimeType = media.document?.mimeType || "video/mp4";
-        const size = media.document?.size || 0;
-
-        // Download the entire file
-        const buffer = await client.downloadMedia(msg, {});
+        // Download the full video
+        const buffer = await downloadVideo(msgId);
 
         if (!buffer) {
             return NextResponse.json({ error: "Failed to download" }, { status: 500 });
         }
 
+        console.log(`Downloaded ${buffer.length} bytes`);
+
+        // Convert Buffer to Uint8Array for Response
+        const uint8Array = new Uint8Array(buffer);
+
         // Return as downloadable file
-        const uint8 = new Uint8Array(buffer as Buffer);
-        return new Response(uint8, {
+        return new Response(uint8Array, {
             headers: {
-                "Content-Type": mimeType,
+                "Content-Type": info.mimeType,
                 "Content-Disposition": `attachment; filename="episode_${msgId}.mp4"`,
-                "Content-Length": size.toString(),
+                "Content-Length": buffer.length.toString(),
                 "Cache-Control": "public, max-age=86400",
             },
         });
     } catch (error) {
         console.error("Download error:", error);
         return NextResponse.json(
-            { error: "Failed to download video" },
+            { error: "Failed to download video", details: String(error) },
             { status: 500 }
         );
     }

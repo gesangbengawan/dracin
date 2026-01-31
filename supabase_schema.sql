@@ -1,5 +1,5 @@
 -- ============================================
--- DRACIN DATABASE SCHEMA v2 - SAFE TO RE-RUN
+-- DRACIN DATABASE SCHEMA v3 - VIDEO INDEX
 -- ============================================
 
 -- 1. Profiles table
@@ -67,14 +67,42 @@ DROP POLICY IF EXISTS "Service role can manage dramas" ON public.dramas;
 CREATE POLICY "Service role can manage dramas" 
   ON public.dramas FOR ALL USING (true);
 
--- 4. Indexes for fast search
+-- 4. Videos index table (scraped from Telegram)
+CREATE TABLE IF NOT EXISTS public.videos (
+  id SERIAL PRIMARY KEY,
+  drama_id TEXT NOT NULL,
+  message_id INT NOT NULL UNIQUE,
+  episode_num INT NOT NULL,
+  file_size BIGINT DEFAULT 0,
+  duration INT DEFAULT 0,
+  mime_type TEXT DEFAULT 'video/mp4',
+  scraped_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Videos are viewable by everyone" ON public.videos;
+CREATE POLICY "Videos are viewable by everyone" 
+  ON public.videos FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Service role can manage videos" ON public.videos;
+CREATE POLICY "Service role can manage videos" 
+  ON public.videos FOR ALL USING (true);
+
+-- 5. Indexes
 DROP INDEX IF EXISTS idx_dramas_title;
 CREATE INDEX idx_dramas_title ON public.dramas USING gin(to_tsvector('simple', title));
 
 DROP INDEX IF EXISTS idx_dramas_title_lower;
 CREATE INDEX idx_dramas_title_lower ON public.dramas (LOWER(title));
 
--- 5. Watch history
+DROP INDEX IF EXISTS idx_videos_drama_id;
+CREATE INDEX idx_videos_drama_id ON public.videos (drama_id);
+
+DROP INDEX IF EXISTS idx_videos_message_id;
+CREATE INDEX idx_videos_message_id ON public.videos (message_id);
+
+-- 6. Watch history
 CREATE TABLE IF NOT EXISTS public.watch_history (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id),
@@ -94,19 +122,5 @@ DROP POLICY IF EXISTS "Users can insert own history" ON public.watch_history;
 CREATE POLICY "Users can insert own history" 
   ON public.watch_history FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- 6. Fast search function
-CREATE OR REPLACE FUNCTION search_dramas(search_query TEXT, result_limit INT DEFAULT 50)
-RETURNS SETOF public.dramas AS $$
-BEGIN
-  RETURN QUERY
-  SELECT * FROM public.dramas
-  WHERE LOWER(title) LIKE '%' || LOWER(search_query) || '%'
-  ORDER BY 
-    CASE WHEN LOWER(title) LIKE LOWER(search_query) || '%' THEN 0 ELSE 1 END,
-    title
-  LIMIT result_limit;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Done!
-SELECT 'Schema v2 created successfully!' as status;
+SELECT 'Schema v3 with videos table created!' as status;

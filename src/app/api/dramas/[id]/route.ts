@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVideosForDrama } from "@/lib/telegram";
+import { getVideosFromDB } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30; // Allow 30s for Telegram connection
+export const maxDuration = 30;
 
 export async function GET(
     request: NextRequest,
@@ -11,10 +11,12 @@ export async function GET(
     const { id } = await params;
 
     try {
-        console.log(`Fetching videos for drama: ${id}`);
-        const videos = await getVideosForDrama(id);
+        console.log(`Getting videos for drama: ${id}`);
 
-        console.log(`Found ${videos.length} videos`);
+        // Get videos from database (scraped data)
+        const videos = await getVideosFromDB(id);
+
+        console.log(`Found ${videos.length} videos in database`);
 
         return NextResponse.json({
             dramaId: id,
@@ -22,11 +24,12 @@ export async function GET(
                 messageId: v.messageId,
                 title: `Episode ${v.episodeNum}`,
                 episode: v.episodeNum,
-                size: v.size,
+                size: v.fileSize,
                 duration: v.duration,
                 mimeType: v.mimeType,
             })),
             total: videos.length,
+            source: "database",
         });
     } catch (error) {
         console.error("Get videos error:", error);
