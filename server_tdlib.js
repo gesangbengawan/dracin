@@ -118,8 +118,16 @@ let shouldInterrupt = false;
 let downloadStats = { total: 0, done: 0, currentDramaId: null };
 
 function loadProgress() {
-    if (fs.existsSync(PROGRESS_FILE)) return JSON.parse(fs.readFileSync(PROGRESS_FILE));
-    return { lastDramaIndex: 0, completedDramas: [] };
+    const defaults = { lastDramaIndex: 0, completedDramas: [] };
+    if (fs.existsSync(PROGRESS_FILE)) {
+        try {
+            const data = JSON.parse(fs.readFileSync(PROGRESS_FILE));
+            return { ...defaults, ...data };
+        } catch (e) {
+            return defaults;
+        }
+    }
+    return defaults;
 }
 function saveProgress(p) { fs.writeFileSync(PROGRESS_FILE, JSON.stringify(p)); }
 
