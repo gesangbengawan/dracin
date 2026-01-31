@@ -54,6 +54,7 @@ interface ServerStatus {
 interface QueueData {
     current?: { id: string; title: string; video?: string; status: string };
     priorityQueue?: string[];
+    requestQueue?: string[];
     upcoming?: Array<{ id: string; title: string; episodes: number }>;
     totalQueued?: number;
 }
@@ -404,9 +405,17 @@ export default function AdminPage() {
                                         )}
                                         {queueData.priorityQueue && queueData.priorityQueue.length > 0 && (
                                             <div>
-                                                <div className="text-yellow-400 font-medium mb-2">⭐ Priority Queue ({queueData.priorityQueue.length})</div>
+                                                <div className="text-yellow-400 font-medium mb-2">⭐ Force Priority ({queueData.priorityQueue.length})</div>
                                                 {queueData.priorityQueue.map((id, idx) => (
                                                     <div key={idx} className="p-2 bg-yellow-500/10 rounded mb-1 text-xs font-mono">{id}</div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {queueData.requestQueue && queueData.requestQueue.length > 0 && (
+                                            <div>
+                                                <div className="text-purple-400 font-medium mb-2">📥 Request Queue ({queueData.requestQueue.length})</div>
+                                                {queueData.requestQueue.map((id, idx) => (
+                                                    <div key={idx} className="p-2 bg-purple-500/10 rounded mb-1 text-xs font-mono">{id}</div>
                                                 ))}
                                             </div>
                                         )}
