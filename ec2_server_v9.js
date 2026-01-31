@@ -58,6 +58,21 @@ function saveProgress(progress) {
 app.use(cors());
 app.use(express.json());
 
+// Serve static video files directly
+app.use("/videos", express.static(COMPRESSED_DIR));
+
+// Download directly from server (local file)
+app.get("/api/download/:dramaId/:episode", (req, res) => {
+    const { dramaId, episode } = req.params;
+    const videoPath = path.join(COMPRESSED_DIR, dramaId, `ep${episode}.mp4`);
+
+    if (!fs.existsSync(videoPath)) {
+        return res.status(404).json({ error: "File not found" });
+    }
+
+    res.download(videoPath, `drama_${dramaId}_ep${episode}.mp4`);
+});
+
 // Telegram client
 let client = null;
 

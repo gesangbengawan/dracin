@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Play, Film, Loader2, X, LogIn, Download, ChevronLeft, ChevronRight, Video, User, LogOut } from "lucide-react";
+import { Search, Play, Film, Loader2, X, LogIn, Download, ChevronLeft, ChevronRight, Video, User, LogOut, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 
@@ -23,8 +24,10 @@ interface VideoItem {
   dramaId?: string;
 }
 
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-export default function HomePage() {
   const [query, setQuery] = useState("");
   const [dramas, setDramas] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,9 +44,24 @@ export default function HomePage() {
   const [showPriorityConfirm, setShowPriorityConfirm] = useState(false);
   const [pendingVideo, setPendingVideo] = useState<VideoItem | null>(null);
   const [prioritizing, setPrioritizing] = useState(false);
+  const [priorityStatus, setPriorityStatus] = useState<string | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const ITEMS_PER_PAGE = 24;
   const supabase = createClient();
+
+  // Read page from URL on mount
+  useEffect(() => {
+    const pageParam = searchParams.get("page");
+    if (pageParam) {
+      const pageNum = parseInt(pageParam, 10);
+      if (!isNaN(pageNum) && pageNum > 0) {
+        setCurrentPage(pageNum);
+        fetchDramas("", pageNum);
+        return;
+      }
+    }
+    fetchDramas("", 1);
+  }, []);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);
@@ -51,12 +69,25 @@ export default function HomePage() {
     searchTimeoutRef.current = setTimeout(() => {
       if (value.length >= 2) {
         setCurrentPage(1);
+        updateURL(1);
         fetchDramas(value, 1);
       } else if (value.length === 0) {
         setCurrentPage(1);
+        updateURL(1);
         fetchDramas("", 1);
       }
     }, 200);
+  };
+
+  // Update URL with page number
+  const updateURL = (page: number) => {
+    const url = new URL(window.location.href);
+    if (page > 1) {
+      url.searchParams.set("page", page.toString());
+    } else {
+      url.searchParams.delete("page");
+    }
+    router.replace(url.pathname + url.search, { scroll: false });
   };
 
   const fetchDramas = useCallback(async (searchQuery = "", pageNum = 1) => {
@@ -80,10 +111,6 @@ export default function HomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchDramas("", 1);
-  }, [fetchDramas]);
-
   // Check auth state
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -105,12 +132,14 @@ export default function HomePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentPage(1);
+    updateURL(1);
     fetchDramas(query, 1);
   };
 
   const goToPage = (page: number) => {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
+    updateURL(page);
     fetchDramas(query, page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -122,10 +151,16 @@ export default function HomePage() {
     setPlayingVideo(null);
     setPlayingEpisode(null);
     setVideoMessage("");
+    setPriorityStatus(null);
 
     try {
       const res = await fetch(`/api/dramas/${drama.id}`);
       const data = await res.json();
+
+      if (data.error) {
+        setVideoMessage(data.message || data.error);
+        return;
+      }
 
       // Tag videos with dramaId for streaming
       const videosWithDramaId = (data.videos || []).map((v: VideoItem) => ({
@@ -135,22 +170,17 @@ export default function HomePage() {
       setVideos(videosWithDramaId);
       setVideoMessage(data.message || "");
 
-      // Auto-play first episode if available
+      // Auto-play first episode if available and ready
       if (videosWithDramaId.length > 0) {
         const firstVideo = videosWithDramaId[0];
         if (firstVideo.ready) {
-          // Local compressed video - use episode-based streaming
           setPlayingEpisode(firstVideo.episode);
           setPlayingVideo(null);
-        } else if (firstVideo.messageId) {
-          // Database video - use messageId streaming
-          setPlayingVideo(firstVideo.messageId);
-          setPlayingEpisode(null);
         }
       }
     } catch (err) {
       console.error(err);
-      setVideoMessage("Gagal mengambil video");
+      setVideoMessage("Gagal mengambil video dari server");
     } finally {
       setLoadingVideos(false);
     }
@@ -159,11 +189,9 @@ export default function HomePage() {
   // Play video with priority confirmation for unready videos
   const playVideo = async (video: VideoItem) => {
     if (video.ready) {
-      // Video is ready - play directly using episode
       setPlayingEpisode(video.episode);
       setPlayingVideo(null);
     } else if (video.messageId) {
-      // Video not ready - show confirmation to prioritize download
       setPendingVideo(video);
       setShowPriorityConfirm(true);
     }
@@ -173,34 +201,35 @@ export default function HomePage() {
   const confirmPriority = async () => {
     if (!pendingVideo || !selectedDrama) return;
     setPrioritizing(true);
+    setPriorityStatus(null);
 
     try {
-      // Call EC2 to prioritize this drama
       await fetch(`/api/prioritize/${selectedDrama.id}`, { method: "POST" });
+      setPriorityStatus(`✅ Drama "${selectedDrama.title}" masuk antrian prioritas!`);
 
-      // Start streaming via messageId (on-demand from Telegram)
-      if (pendingVideo.messageId) {
-        setPlayingVideo(pendingVideo.messageId);
-        setPlayingEpisode(null);
-      }
+      setTimeout(() => {
+        setShowPriorityConfirm(false);
+        setPendingVideo(null);
+        setPriorityStatus(null);
+      }, 2000);
+
     } catch (err) {
       console.error("Priority error:", err);
+      setPriorityStatus("❌ Gagal menambahkan ke antrian prioritas");
     } finally {
       setPrioritizing(false);
-      setShowPriorityConfirm(false);
-      setPendingVideo(null);
     }
   };
 
-  // Cancel priority dialog
   const cancelPriority = () => {
     setShowPriorityConfirm(false);
     setPendingVideo(null);
+    setPriorityStatus(null);
   };
 
-  // Get video source URL
   const getVideoSrc = () => {
     if (playingEpisode && selectedDrama) {
+      // Use Vercel proxy for HTTPS compatibility
       return `/api/stream/${selectedDrama.id}/${playingEpisode}`;
     }
     if (playingVideo) {
@@ -209,6 +238,12 @@ export default function HomePage() {
     return "";
   };
 
+  const clearQuery = () => {
+    setQuery("");
+    setCurrentPage(1);
+    updateURL(1);
+    fetchDramas("", 1);
+  };
 
   const formatSize = (bytes: number) => {
     if (!bytes) return "";
@@ -283,7 +318,12 @@ export default function HomePage() {
             Stream <span className="gradient-text">Asian Dramas</span>
           </motion.h2>
           <motion.form onSubmit={handleSearch} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="max-w-xl mx-auto relative">
-            <input type="text" value={query} onChange={(e) => handleQueryChange(e.target.value)} placeholder="Cari judul drama..." className="input-cyber w-full py-4 px-5 pr-28 text-lg" />
+            <input type="text" value={query} onChange={(e) => handleQueryChange(e.target.value)} placeholder="Cari judul drama..." className="input-cyber w-full py-4 px-5 pr-32 text-lg" />
+            {query && (
+              <button type="button" onClick={clearQuery} className="absolute right-[88px] top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" title="Clear search">
+                <X className="w-4 h-4" />
+              </button>
+            )}
             <button type="submit" className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-5 flex items-center gap-2" disabled={loading}>
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-4 h-4" />}
               <span className="hidden sm:inline">Cari</span>
@@ -356,14 +396,24 @@ export default function HomePage() {
                   <button onClick={() => setSelectedDrama(null)} className="p-2 hover:bg-white/10 rounded-lg"><X className="w-6 h-6" /></button>
                 </div>
 
+                {/* Video Player - Auto aspect ratio for portrait/landscape */}
                 {(playingVideo || playingEpisode) && (
-                  <div className="mb-4 rounded-xl overflow-hidden bg-black aspect-video">
-                    <video key={`${playingVideo}-${playingEpisode}`} controls autoPlay className="w-full h-full" src={getVideoSrc()} />
+                  <div className="mb-4 rounded-xl overflow-hidden bg-black flex items-center justify-center" style={{ maxHeight: "70vh" }}>
+                    <video
+                      key={`${playingVideo}-${playingEpisode}`}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="max-w-full max-h-[70vh]"
+                      style={{ objectFit: "contain" }}
+                      src={getVideoSrc()}
+                    />
                   </div>
                 )}
 
                 {videoMessage && videos.length === 0 && (
-                  <div className="mb-4 p-4 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm">
+                  <div className="mb-4 p-4 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
                     {videoMessage}
                   </div>
                 )}
@@ -377,12 +427,12 @@ export default function HomePage() {
                   {loadingVideos ? (
                     <div className="flex flex-col items-center justify-center py-10">
                       <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-2" />
-                      <p className="text-sm text-gray-500">Mencari video dari chat history...</p>
+                      <p className="text-sm text-gray-500">Mengambil daftar video...</p>
                     </div>
                   ) : videos.length === 0 ? (
                     <div className="text-center py-10">
-                      <p className="text-gray-500 mb-2">Video tidak ditemukan di chat history.</p>
-                      <p className="text-xs text-gray-600">Drama ini belum pernah di-trigger dari Telegram.</p>
+                      <p className="text-gray-500 mb-2">Video belum tersedia di server.</p>
+                      <p className="text-xs text-gray-600">Drama ini belum pernah di-download atau masih dalam antrian.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -398,9 +448,35 @@ export default function HomePage() {
                               {video.duration && !video.ready && <span className="text-xs text-gray-500">{formatDuration(video.duration)}</span>}
                             </div>
                             {video.size && <p className="text-xs text-gray-500 mb-2">{formatSize(video.size)}</p>}
-                            <div className="flex gap-1">
-                              <button onClick={() => playVideo(video)} className="flex-1 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"><Play className="w-3 h-3" /> Play</button>
-                              {video.messageId && <a href={`/api/download/${video.messageId}`} download className="py-1.5 px-2 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs" onClick={(e) => e.stopPropagation()}><Download className="w-3 h-3" /></a>}
+                            <div className="flex flex-col gap-1">
+                              {video.ready && selectedDrama ? (
+                                <>
+                                  {/* Play via watch page - hides direct EC2 URL */}
+                                  <a
+                                    href={`/watch?d=${selectedDrama.id}&e=${video.episode}&t=${encodeURIComponent(selectedDrama.title)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"
+                                    title="Play langsung (new tab)"
+                                  >
+                                    <Play className="w-3 h-3" /> Play (Fast)
+                                  </a>
+                                  <a
+                                    href={`/api/dramas/${selectedDrama.id}/download/${video.episode}`}
+                                    download
+                                    className="w-full py-1.5 rounded bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs flex items-center justify-center gap-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Download video"
+                                  >
+                                    <Download className="w-3 h-3" /> Download
+                                  </a>
+                                </>
+                              ) : (
+                                <>
+                                  <button onClick={() => playVideo(video)} className="w-full py-1.5 rounded bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 text-xs flex items-center justify-center gap-1"><Play className="w-3 h-3" /> Request Download</button>
+                                  {video.messageId && <a href={`/api/download/${video.messageId}`} download className="w-full py-1.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()} title="Download via Telegram"><Download className="w-3 h-3" /> Telegram</a>}
+                                </>
+                              )}
                             </div>
                           </div>
                         );
@@ -435,32 +511,52 @@ export default function HomePage() {
                 <Download className="w-8 h-8 text-yellow-400" />
               </div>
               <h3 className="text-xl font-bold mb-2">Video Belum Tersedia</h3>
-              <p className="text-gray-400 mb-4 text-sm">
-                Episode {pendingVideo.episode} belum di-download. Apakah Anda ingin prioritaskan download ini sekarang?
-              </p>
-              <p className="text-xs text-gray-500 mb-6">
-                Video akan di-stream langsung dari Telegram (mungkin buffering) sambil menunggu download selesai.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={cancelPriority}
-                  className="flex-1 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={confirmPriority}
-                  disabled={prioritizing}
-                  className="flex-1 py-3 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-black font-medium flex items-center justify-center gap-2"
-                >
-                  {prioritizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Ya, Play Sekarang
-                </button>
-              </div>
+
+              {priorityStatus ? (
+                <p className="text-lg py-4">{priorityStatus}</p>
+              ) : (
+                <>
+                  <p className="text-gray-400 mb-4 text-sm">
+                    Episode {pendingVideo.episode} belum di-download ke server. Apakah Anda ingin prioritaskan download ini sekarang?
+                  </p>
+                  <p className="text-xs text-gray-500 mb-6">
+                    Drama akan ditambahkan ke antrian prioritas dan di-download setelah episode saat ini selesai.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={cancelPriority}
+                      className="flex-1 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      onClick={confirmPriority}
+                      disabled={prioritizing}
+                      className="flex-1 py-3 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-black font-medium flex items-center justify-center gap-2"
+                    >
+                      {prioritizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      Prioritaskan
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// Main export with Suspense boundary for useSearchParams
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }
