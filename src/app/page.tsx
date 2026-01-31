@@ -14,12 +14,15 @@ interface Drama {
 }
 
 interface VideoItem {
-  messageId: number;
+  messageId?: number;
   episode: number;
   title?: string;
   size?: number;
   duration?: number;
+  ready?: boolean;
+  dramaId?: string;
 }
+
 
 export default function HomePage() {
   const [query, setQuery] = useState("");
@@ -29,11 +32,15 @@ export default function HomePage() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [playingVideo, setPlayingVideo] = useState<number | null>(null);
+  const [playingEpisode, setPlayingEpisode] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDramas, setTotalDramas] = useState(0);
   const [videoMessage, setVideoMessage] = useState("");
   const [user, setUser] = useState<any>(null);
+  const [showPriorityConfirm, setShowPriorityConfirm] = useState(false);
+  const [pendingVideo, setPendingVideo] = useState<VideoItem | null>(null);
+  const [prioritizing, setPrioritizing] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const ITEMS_PER_PAGE = 24;
   const supabase = createClient();
@@ -113,17 +120,33 @@ export default function HomePage() {
     setLoadingVideos(true);
     setVideos([]);
     setPlayingVideo(null);
+    setPlayingEpisode(null);
     setVideoMessage("");
 
     try {
       const res = await fetch(`/api/dramas/${drama.id}`);
       const data = await res.json();
 
-      setVideos(data.videos || []);
+      // Tag videos with dramaId for streaming
+      const videosWithDramaId = (data.videos || []).map((v: VideoItem) => ({
+        ...v,
+        dramaId: drama.id,
+      }));
+      setVideos(videosWithDramaId);
       setVideoMessage(data.message || "");
 
-      if (data.videos?.length > 0 && data.videos[0].messageId) {
-        setPlayingVideo(data.videos[0].messageId);
+      // Auto-play first episode if available
+      if (videosWithDramaId.length > 0) {
+        const firstVideo = videosWithDramaId[0];
+        if (firstVideo.ready) {
+          // Local compressed video - use episode-based streaming
+          setPlayingEpisode(firstVideo.episode);
+          setPlayingVideo(null);
+        } else if (firstVideo.messageId) {
+          // Database video - use messageId streaming
+          setPlayingVideo(firstVideo.messageId);
+          setPlayingEpisode(null);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -132,6 +155,60 @@ export default function HomePage() {
       setLoadingVideos(false);
     }
   };
+
+  // Play video with priority confirmation for unready videos
+  const playVideo = async (video: VideoItem) => {
+    if (video.ready) {
+      // Video is ready - play directly using episode
+      setPlayingEpisode(video.episode);
+      setPlayingVideo(null);
+    } else if (video.messageId) {
+      // Video not ready - show confirmation to prioritize download
+      setPendingVideo(video);
+      setShowPriorityConfirm(true);
+    }
+  };
+
+  // Confirm priority download and play
+  const confirmPriority = async () => {
+    if (!pendingVideo || !selectedDrama) return;
+    setPrioritizing(true);
+
+    try {
+      // Call EC2 to prioritize this drama
+      await fetch(`/api/prioritize/${selectedDrama.id}`, { method: "POST" });
+
+      // Start streaming via messageId (on-demand from Telegram)
+      if (pendingVideo.messageId) {
+        setPlayingVideo(pendingVideo.messageId);
+        setPlayingEpisode(null);
+      }
+    } catch (err) {
+      console.error("Priority error:", err);
+    } finally {
+      setPrioritizing(false);
+      setShowPriorityConfirm(false);
+      setPendingVideo(null);
+    }
+  };
+
+  // Cancel priority dialog
+  const cancelPriority = () => {
+    setShowPriorityConfirm(false);
+    setPendingVideo(null);
+  };
+
+  // Get video source URL
+  const getVideoSrc = () => {
+    if (playingEpisode && selectedDrama) {
+      return `/api/stream/${selectedDrama.id}/${playingEpisode}`;
+    }
+    if (playingVideo) {
+      return `/api/stream/${playingVideo}`;
+    }
+    return "";
+  };
+
 
   const formatSize = (bytes: number) => {
     if (!bytes) return "";
@@ -279,9 +356,9 @@ export default function HomePage() {
                   <button onClick={() => setSelectedDrama(null)} className="p-2 hover:bg-white/10 rounded-lg"><X className="w-6 h-6" /></button>
                 </div>
 
-                {playingVideo && (
+                {(playingVideo || playingEpisode) && (
                   <div className="mb-4 rounded-xl overflow-hidden bg-black aspect-video">
-                    <video key={playingVideo} controls autoPlay className="w-full h-full" src={`/api/stream/${playingVideo}`} />
+                    <video key={`${playingVideo}-${playingEpisode}`} controls autoPlay className="w-full h-full" src={getVideoSrc()} />
                   </div>
                 )}
 
@@ -309,24 +386,78 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                      {videos.map((video) => (
-                        <div key={video.messageId} className={`p-3 rounded-lg transition-all ${playingVideo === video.messageId ? "bg-cyan-500/30 border border-cyan-500" : "bg-white/5 hover:bg-white/10"}`}>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium text-sm">Ep {video.episode}</span>
-                            {video.duration && <span className="text-xs text-gray-500">{formatDuration(video.duration)}</span>}
+                      {videos.map((video) => {
+                        const isPlaying = video.ready
+                          ? playingEpisode === video.episode
+                          : playingVideo === video.messageId;
+                        return (
+                          <div key={video.episode} className={`p-3 rounded-lg transition-all ${isPlaying ? "bg-cyan-500/30 border border-cyan-500" : "bg-white/5 hover:bg-white/10"}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-sm">Ep {video.episode}</span>
+                              {video.ready && <span className="text-xs text-green-400">✓ Ready</span>}
+                              {video.duration && !video.ready && <span className="text-xs text-gray-500">{formatDuration(video.duration)}</span>}
+                            </div>
+                            {video.size && <p className="text-xs text-gray-500 mb-2">{formatSize(video.size)}</p>}
+                            <div className="flex gap-1">
+                              <button onClick={() => playVideo(video)} className="flex-1 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"><Play className="w-3 h-3" /> Play</button>
+                              {video.messageId && <a href={`/api/download/${video.messageId}`} download className="py-1.5 px-2 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs" onClick={(e) => e.stopPropagation()}><Download className="w-3 h-3" /></a>}
+                            </div>
                           </div>
-                          {video.size && <p className="text-xs text-gray-500 mb-2">{formatSize(video.size)}</p>}
-                          <div className="flex gap-1">
-                            <button onClick={() => setPlayingVideo(video.messageId)} className="flex-1 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"><Play className="w-3 h-3" /> Play</button>
-                            <a href={`/api/download/${video.messageId}`} download className="py-1.5 px-2 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs" onClick={(e) => e.stopPropagation()}><Download className="w-3 h-3" /></a>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               </motion.div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Priority Confirmation Dialog */}
+      <AnimatePresence>
+        {showPriorityConfirm && pendingVideo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+            onClick={cancelPriority}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="glass-card p-6 rounded-xl max-w-md w-full text-center"
+            >
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                <Download className="w-8 h-8 text-yellow-400" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">Video Belum Tersedia</h3>
+              <p className="text-gray-400 mb-4 text-sm">
+                Episode {pendingVideo.episode} belum di-download. Apakah Anda ingin prioritaskan download ini sekarang?
+              </p>
+              <p className="text-xs text-gray-500 mb-6">
+                Video akan di-stream langsung dari Telegram (mungkin buffering) sambil menunggu download selesai.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelPriority}
+                  className="flex-1 py-3 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={confirmPriority}
+                  disabled={prioritizing}
+                  className="flex-1 py-3 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-black font-medium flex items-center justify-center gap-2"
+                >
+                  {prioritizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Ya, Play Sekarang
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

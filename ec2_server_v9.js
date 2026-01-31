@@ -545,6 +545,56 @@ app.get("/api/download-status", (req, res) => {
     res.json({ isDownloading, currentDrama, stats: downloadStats, progress: { lastIndex: progress.lastDramaIndex, completed: progress.completedDramas.length } });
 });
 
+// Get queue details
+app.get("/api/queue", (req, res) => {
+    try {
+        const progress = loadProgress();
+        const jsonData = JSON.parse(fs.readFileSync(DRAMAS_JSON, "utf8"));
+        const dramas = jsonData.dramas_done;
+
+        // Get details for priority queue items
+        const priorityDetails = priorityQueue.map(id => {
+            const d = dramas.find(x => x.id === id);
+            return d ? { id: d.id, title: d.title, episodes: d.episodes, source: "priority" } : { id, title: "Unknown", source: "priority" };
+        });
+
+        // Get next 10 from normal queue
+        const nextInQueue = [];
+        let count = 0;
+        let idx = progress.lastDramaIndex;
+
+        while (count < 10 && idx < dramas.length) {
+            const d = dramas[idx];
+            // Skip if in priority queue (to avoid duplicate view)
+            if (!priorityQueue.includes(d.id) && !progress.completedDramas.includes(d.id)) {
+                nextInQueue.push({
+                    id: d.id,
+                    title: d.title,
+                    episodes: d.episodes,
+                    index: idx,
+                    source: "normal"
+                });
+                count++;
+            }
+            idx++;
+        }
+
+        res.json({
+            current: {
+                id: downloadStats.currentDramaId,
+                title: currentDrama ? currentDrama.title : "Unknown",
+                video: downloadStats.currentVideo,
+                status: isDownloading ? "Downloading" : "Idle"
+            },
+            priority: priorityDetails,
+            next: nextInQueue,
+            totalQueued: dramas.length - progress.completedDramas.length
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/disk", (req, res) => {
     try {
         const df = execSync("df -h /home/ubuntu").toString();
