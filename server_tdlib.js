@@ -391,6 +391,35 @@ app.post('/api/force-priority/:id', (req, res) => {
     res.json({ success: true, message: `${id} added to priority queue` });
 });
 
+// Ready films API - list completed downloads
+app.get('/api/ready', (req, res) => {
+    try {
+        if (!fs.existsSync(COMPRESSED_DIR)) {
+            return res.json({ films: [], count: 0 });
+        }
+
+        const dramaFolders = fs.readdirSync(COMPRESSED_DIR).filter(f => {
+            const p = path.join(COMPRESSED_DIR, f);
+            return fs.statSync(p).isDirectory();
+        });
+
+        const films = dramaFolders.map(folder => {
+            const folderPath = path.join(COMPRESSED_DIR, folder);
+            const episodes = fs.readdirSync(folderPath).filter(f => f.endsWith('.mp4'));
+            return {
+                dramaId: folder,
+                episodeCount: episodes.length,
+                episodes: episodes.map(e => parseInt(e.replace('ep', '').replace('.mp4', '')))
+            };
+        }).filter(f => f.episodeCount > 0);
+
+        res.json({ films, count: films.length });
+    } catch (e) {
+        console.error(e);
+        res.json({ films: [], count: 0, error: e.message });
+    }
+});
+
 // Start
 client.connect().then(() => {
     client.login().catch(e => {

@@ -52,16 +52,16 @@ interface ServerStatus {
 }
 
 interface QueueData {
-    current?: { id: string; title: string; video: string; status: string };
-    priority?: Array<{ id: string; title: string; episodes: number }>;
-    next?: Array<{ id: string; title: string; episodes: number }>;
+    current?: { id: string; title: string; video?: string; status: string };
+    priorityQueue?: string[];
+    upcoming?: Array<{ id: string; title: string; episodes: number }>;
     totalQueued?: number;
 }
 
 interface ReadyFilm {
     dramaId: string;
-    episodes: number;
-    episodeList: number[];
+    episodeCount: number;
+    episodes: number[];
 }
 
 export default function AdminPage() {
@@ -401,21 +401,20 @@ export default function AdminPage() {
                                                 <div className="text-gray-400 text-xs">{queueData.current.video}</div>
                                             </div>
                                         )}
-                                        {queueData.priority && queueData.priority.length > 0 && (
+                                        {queueData.priorityQueue && queueData.priorityQueue.length > 0 && (
                                             <div>
-                                                <div className="text-yellow-400 font-medium mb-2">⭐ Priority Queue ({queueData.priority.length})</div>
-                                                {queueData.priority.map((item, idx) => (
-                                                    <div key={idx} className="p-2 bg-yellow-500/10 rounded mb-1 text-xs">{item.id}: {item.title} ({item.episodes} eps)</div>
+                                                <div className="text-yellow-400 font-medium mb-2">⭐ Priority Queue ({queueData.priorityQueue.length})</div>
+                                                {queueData.priorityQueue.map((id, idx) => (
+                                                    <div key={idx} className="p-2 bg-yellow-500/10 rounded mb-1 text-xs font-mono">{id}</div>
                                                 ))}
                                             </div>
                                         )}
-                                        {queueData.next && queueData.next.length > 0 && (
+                                        {queueData.upcoming && queueData.upcoming.length > 0 && (
                                             <div>
-                                                <div className="text-gray-400 font-medium mb-2">📋 Next ({queueData.totalQueued || 0} total)</div>
-                                                {queueData.next.slice(0, 5).map((item, idx) => (
-                                                    <div key={idx} className="p-2 bg-white/5 rounded mb-1 text-xs">{item.id}: {item.title}</div>
+                                                <div className="text-gray-400 font-medium mb-2">📋 Antrian Berikutnya ({queueData.totalQueued || 0} total)</div>
+                                                {queueData.upcoming.slice(0, 10).map((item, idx) => (
+                                                    <div key={idx} className="p-2 bg-white/5 rounded mb-1 text-xs">{item.id}: {item.title} ({item.episodes} eps)</div>
                                                 ))}
-                                                {queueData.next.length > 5 && <div className="text-gray-500 text-xs">...dan {queueData.next.length - 5} lainnya</div>}
                                             </div>
                                         )}
                                     </div>
@@ -432,7 +431,7 @@ export default function AdminPage() {
                                         {readyFilms.slice(0, 20).map((film, idx) => (
                                             <div key={idx} className="flex justify-between p-2 bg-white/5 rounded">
                                                 <span className="text-cyan-400 font-mono">{film.dramaId}</span>
-                                                <span className="text-gray-400">{film.episodes} eps</span>
+                                                <span className="text-gray-400">{film.episodeCount} eps</span>
                                             </div>
                                         ))}
                                         {readyFilms.length > 20 && <div className="text-gray-500 text-center text-xs">...dan {readyFilms.length - 20} lainnya</div>}
