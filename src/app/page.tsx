@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Play, Film, Loader2, X, LogIn, Clock, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Play, Film, Loader2, X, LogIn, Download, ChevronLeft, ChevronRight, Video } from "lucide-react";
 import Link from "next/link";
 
 interface Drama {
@@ -12,9 +12,12 @@ interface Drama {
   total_episodes?: number;
 }
 
-interface Video {
+interface VideoItem {
+  messageId: number;
   episode: number;
   title: string;
+  size?: number;
+  duration?: number;
 }
 
 export default function HomePage() {
@@ -22,22 +25,20 @@ export default function HomePage() {
   const [dramas, setDramas] = useState<Drama[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [playingVideo, setPlayingVideo] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDramas, setTotalDramas] = useState(0);
+  const [videoError, setVideoError] = useState("");
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 24;
 
   // Debounced search
   const handleQueryChange = (value: string) => {
     setQuery(value);
-
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
     searchTimeoutRef.current = setTimeout(() => {
       if (value.length >= 2) {
@@ -92,19 +93,45 @@ export default function HomePage() {
     setSelectedDrama(drama);
     setLoadingVideos(true);
     setVideos([]);
+    setPlayingVideo(null);
+    setVideoError("");
 
     try {
       const res = await fetch(`/api/dramas/${drama.id}`);
       const data = await res.json();
+
+      if (data.error) {
+        setVideoError(data.message || data.error);
+      }
+
       setVideos(data.videos || []);
+
+      // Auto-play first video if available
+      if (data.videos?.length > 0 && data.videos[0].messageId) {
+        setPlayingVideo(data.videos[0].messageId);
+      }
     } catch (err) {
       console.error(err);
+      setVideoError("Gagal mengambil daftar video");
     } finally {
       setLoadingVideos(false);
     }
   };
 
-  // Generate page numbers to display
+  const formatSize = (bytes: number) => {
+    if (!bytes) return "";
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)} MB`;
+  };
+
+  const formatDuration = (seconds: number) => {
+    if (!seconds) return "";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Generate page numbers
   const getPageNumbers = () => {
     const pages: (number | string)[] = [];
     const maxVisible = 5;
@@ -113,7 +140,6 @@ export default function HomePage() {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
       pages.push(1);
-
       if (currentPage > 3) pages.push("...");
 
       const start = Math.max(2, currentPage - 1);
@@ -122,7 +148,6 @@ export default function HomePage() {
       for (let i = start; i <= end; i++) pages.push(i);
 
       if (currentPage < totalPages - 2) pages.push("...");
-
       pages.push(totalPages);
     }
 
@@ -141,10 +166,7 @@ export default function HomePage() {
             <h1 className="text-2xl font-bold gradient-text">Dracin</h1>
           </Link>
 
-          <Link
-            href="/login"
-            className="flex items-center gap-2 btn-secondary py-2 px-4 text-sm"
-          >
+          <Link href="/login" className="flex items-center gap-2 btn-secondary py-2 px-4 text-sm">
             <LogIn className="w-4 h-4" />
             <span className="hidden sm:inline">Login</span>
           </Link>
@@ -169,33 +191,21 @@ export default function HomePage() {
             transition={{ delay: 0.1 }}
             className="max-w-xl mx-auto relative"
           >
-            <div className="relative">
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(e) => handleQueryChange(e.target.value)}
-                placeholder="Cari judul drama..."
-                className="input-cyber w-full py-4 px-5 pr-28 text-lg"
-              />
-              <button
-                type="submit"
-                className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-5 flex items-center gap-2"
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <Search className="w-4 h-4" />
-                    <span className="hidden sm:inline">Cari</span>
-                  </>
-                )}
-              </button>
-            </div>
-            {query.length > 0 && query.length < 2 && (
-              <p className="text-xs text-gray-500 mt-2">Ketik minimal 2 karakter</p>
-            )}
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => handleQueryChange(e.target.value)}
+              placeholder="Cari judul drama..."
+              className="input-cyber w-full py-4 px-5 pr-28 text-lg"
+            />
+            <button
+              type="submit"
+              className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-5 flex items-center gap-2"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-4 h-4" />}
+              <span className="hidden sm:inline">Cari</span>
+            </button>
           </motion.form>
         </div>
       </section>
@@ -207,14 +217,10 @@ export default function HomePage() {
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <Film className="w-5 h-5 text-cyan-400" />
               {query ? `Hasil: "${query}"` : "Drama Terbaru"}
-              <span className="text-sm text-gray-500 font-normal">
-                ({totalDramas} drama)
-              </span>
+              <span className="text-sm text-gray-500 font-normal">({totalDramas} drama)</span>
             </h3>
             {!query && totalPages > 1 && (
-              <span className="text-sm text-gray-500">
-                Halaman {currentPage} dari {totalPages}
-              </span>
+              <span className="text-sm text-gray-500">Halaman {currentPage} dari {totalPages}</span>
             )}
           </div>
 
@@ -246,9 +252,7 @@ export default function HomePage() {
                           alt={drama.title}
                           className="w-full h-full object-cover transition-transform group-hover:scale-105"
                           loading="lazy"
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                          }}
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
@@ -277,20 +281,17 @@ export default function HomePage() {
                   <button
                     onClick={() => goToPage(currentPage - 1)}
                     disabled={currentPage === 1 || loading}
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
 
-                  {getPageNumbers().map((page, idx) => (
+                  {getPageNumbers().map((page, idx) =>
                     typeof page === "number" ? (
                       <button
                         key={idx}
                         onClick={() => goToPage(page)}
-                        disabled={loading}
-                        className={`w-10 h-10 rounded-lg font-medium transition-all ${currentPage === page
-                            ? "bg-cyan-500 text-black"
-                            : "bg-white/5 hover:bg-white/10"
+                        className={`w-10 h-10 rounded-lg font-medium ${currentPage === page ? "bg-cyan-500 text-black" : "bg-white/5 hover:bg-white/10"
                           }`}
                       >
                         {page}
@@ -298,12 +299,12 @@ export default function HomePage() {
                     ) : (
                       <span key={idx} className="px-2 text-gray-500">...</span>
                     )
-                  ))}
+                  )}
 
                   <button
                     onClick={() => goToPage(currentPage + 1)}
                     disabled={currentPage === totalPages || loading}
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30"
                   >
                     <ChevronRight className="w-5 h-5" />
                   </button>
@@ -324,67 +325,57 @@ export default function HomePage() {
             className="fixed inset-0 z-50 bg-black/95 overflow-y-auto"
             onClick={() => setSelectedDrama(null)}
           >
-            <div className="min-h-screen py-8 px-4">
+            <div className="min-h-screen py-4 px-4">
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="max-w-3xl mx-auto"
+                className="max-w-4xl mx-auto"
               >
                 {/* Header */}
-                <div className="flex items-start gap-4 mb-6">
+                <div className="flex items-start gap-4 mb-4">
                   {selectedDrama.poster_url && (
-                    <div className="w-20 h-28 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block">
-                      <img
-                        src={selectedDrama.poster_url}
-                        alt={selectedDrama.title}
-                        className="w-full h-full object-cover"
-                      />
+                    <div className="w-16 h-24 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block">
+                      <img src={selectedDrama.poster_url} alt={selectedDrama.title} className="w-full h-full object-cover" />
                     </div>
                   )}
-
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-xl sm:text-2xl font-bold gradient-text mb-1 truncate">
-                      {selectedDrama.title}
-                    </h3>
-                    <p className="text-sm text-gray-400">
-                      ID: {selectedDrama.id} • {videos.length} Episode
-                    </p>
+                    <h3 className="text-xl font-bold gradient-text truncate">{selectedDrama.title}</h3>
+                    <p className="text-sm text-gray-400">ID: {selectedDrama.id} • {videos.length} Episode</p>
                   </div>
-
-                  <button
-                    onClick={() => setSelectedDrama(null)}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
-                  >
+                  <button onClick={() => setSelectedDrama(null)} className="p-2 hover:bg-white/10 rounded-lg">
                     <X className="w-6 h-6" />
                   </button>
                 </div>
 
-                {/* Episode Info */}
-                <div className="glass-card p-6 rounded-xl mb-4">
-                  <div className="flex items-center gap-3 mb-4">
-                    <Play className="w-5 h-5 text-cyan-400" />
-                    <h4 className="font-semibold">Cara Menonton</h4>
+                {/* Video Player */}
+                {playingVideo && (
+                  <div className="mb-4 rounded-xl overflow-hidden bg-black aspect-video">
+                    <video
+                      key={playingVideo}
+                      controls
+                      autoPlay
+                      className="w-full h-full"
+                      src={`/api/stream/${playingVideo}`}
+                      onError={() => setVideoError("Gagal memutar video. Pastikan EC2 aktif dan port 3001 terbuka.")}
+                    >
+                      Your browser does not support video playback.
+                    </video>
                   </div>
+                )}
 
-                  <p className="text-gray-400 text-sm mb-4">
-                    Drama ini memiliki <span className="text-cyan-400 font-bold">{videos.length}</span> episode.
-                    Untuk menonton, kamu perlu trigger drama ini dari Telegram bot @IDShortBot.
-                  </p>
-
-                  <div className="bg-white/5 rounded-lg p-4">
-                    <p className="text-xs text-gray-500 mb-2">Kirim ke Telegram:</p>
-                    <code className="text-cyan-400 text-sm break-all">
-                      /start playfirst-{selectedDrama.id}
-                    </code>
+                {/* Error message */}
+                {videoError && (
+                  <div className="mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                    {videoError}
                   </div>
-                </div>
+                )}
 
                 {/* Episode List */}
                 <div className="glass-card p-4 rounded-xl">
                   <h4 className="font-semibold mb-4 text-gray-300 flex items-center gap-2">
-                    <Film className="w-4 h-4 text-cyan-400" />
+                    <Video className="w-4 h-4 text-cyan-400" />
                     Daftar Episode
                   </h4>
 
@@ -394,21 +385,52 @@ export default function HomePage() {
                     </div>
                   ) : videos.length === 0 ? (
                     <div className="text-center py-10">
-                      <p className="text-gray-500 mb-2">
-                        Belum ada data episode.
-                      </p>
+                      <p className="text-gray-500 mb-2">Tidak ada video tersedia.</p>
                       <p className="text-xs text-gray-600">
-                        Import data JSON terlebih dahulu dari Admin Panel.
+                        Trigger drama ini dari Telegram: /start playfirst-{selectedDrama.id}
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                       {videos.map((video) => (
                         <div
-                          key={video.episode}
-                          className="p-3 rounded-lg bg-white/5 text-center"
+                          key={video.messageId || video.episode}
+                          className={`p-3 rounded-lg transition-all ${playingVideo === video.messageId
+                              ? "bg-cyan-500/30 border border-cyan-500"
+                              : "bg-white/5 hover:bg-white/10"
+                            }`}
                         >
-                          <span className="text-sm font-medium">Ep {video.episode}</span>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-sm">Ep {video.episode}</span>
+                            {video.duration && (
+                              <span className="text-xs text-gray-500">{formatDuration(video.duration)}</span>
+                            )}
+                          </div>
+                          {video.size && (
+                            <p className="text-xs text-gray-500 mb-2">{formatSize(video.size)}</p>
+                          )}
+                          <div className="flex gap-1">
+                            {video.messageId ? (
+                              <>
+                                <button
+                                  onClick={() => setPlayingVideo(video.messageId)}
+                                  className="flex-1 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"
+                                >
+                                  <Play className="w-3 h-3" /> Play
+                                </button>
+                                <a
+                                  href={`/api/download/${video.messageId}`}
+                                  download
+                                  className="py-1.5 px-2 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Download className="w-3 h-3" />
+                                </a>
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-500">No video ID</span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>

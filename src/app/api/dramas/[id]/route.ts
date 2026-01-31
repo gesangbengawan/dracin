@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+const EC2_VIDEO_SERVER = "http://ec2-100-31-156-119.compute-1.amazonaws.com:3001";
 
 export async function GET(
     request: NextRequest,
@@ -10,57 +12,34 @@ export async function GET(
     const { id } = await params;
 
     try {
-        console.log(`Getting drama info for ID: ${id}`);
+        console.log(`Fetching videos for drama ${id} from EC2...`);
 
-        // Get drama from database
-        const { data: drama, error } = await supabaseAdmin
-            .from("dramas")
-            .select("*")
-            .eq("id", id)
-            .single();
+        const res = await fetch(`${EC2_VIDEO_SERVER}/api/videos/${id}`, {
+            headers: {
+                "Origin": "https://dracin-delta.vercel.app",
+            },
+        });
 
-        if (error || !drama) {
-            return NextResponse.json({
-                dramaId: id,
-                title: `Drama ${id}`,
-                videos: [],
-                total: 0,
-                message: "Drama not found in database. Import the JSON data first.",
-            });
+        if (!res.ok) {
+            throw new Error(`EC2 returned ${res.status}`);
         }
 
-        // Generate episode list based on total_episodes
-        const episodes = drama.total_episodes || 0;
-        const videos = [];
-
-        for (let i = 1; i <= episodes; i++) {
-            videos.push({
-                episode: i,
-                title: `Episode ${i}`,
-                // We don't have messageId yet - user needs to trigger from Telegram
-                // For now, we just show the count
-            });
-        }
+        const data = await res.json();
 
         return NextResponse.json({
             dramaId: id,
-            title: drama.title,
-            posterUrl: drama.poster_url,
-            videos,
-            total: episodes,
-            source: "database",
-            message: episodes > 0
-                ? `Found ${episodes} episodes`
-                : "No episodes indexed. Trigger this drama from Telegram first.",
+            videos: data.videos || [],
+            total: data.total || 0,
+            source: "ec2",
         });
     } catch (error) {
-        console.error("Get drama error:", error);
-        return NextResponse.json(
-            {
-                error: "Failed to get drama info",
-                videos: [],
-            },
-            { status: 500 }
-        );
+        console.error("EC2 video fetch error:", error);
+        return NextResponse.json({
+            dramaId: id,
+            videos: [],
+            total: 0,
+            error: error instanceof Error ? error.message : "Failed to fetch videos from EC2",
+            message: "Video server mungkin sedang offline. Pastikan EC2 Security Group sudah open port 3001.",
+        });
     }
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { downloadVideo, getVideoInfo } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
+
+const EC2_VIDEO_SERVER = "http://ec2-100-31-156-119.compute-1.amazonaws.com:3001";
 
 export async function GET(
     request: NextRequest,
@@ -16,39 +17,40 @@ export async function GET(
     }
 
     try {
-        console.log(`Downloading video: ${msgId}`);
+        console.log(`Downloading video ${msgId} from EC2...`);
 
-        // Get video info first
-        const info = await getVideoInfo(msgId);
-        if (!info) {
-            return NextResponse.json({ error: "Video not found" }, { status: 404 });
-        }
-
-        // Download the full video
-        const buffer = await downloadVideo(msgId);
-
-        if (!buffer) {
-            return NextResponse.json({ error: "Failed to download" }, { status: 500 });
-        }
-
-        console.log(`Downloaded ${buffer.length} bytes`);
-
-        // Convert Buffer to Uint8Array for Response
-        const uint8Array = new Uint8Array(buffer);
-
-        // Return as downloadable file
-        return new Response(uint8Array, {
+        const res = await fetch(`${EC2_VIDEO_SERVER}/api/download/${msgId}`, {
             headers: {
-                "Content-Type": info.mimeType,
-                "Content-Disposition": `attachment; filename="episode_${msgId}.mp4"`,
-                "Content-Length": buffer.length.toString(),
-                "Cache-Control": "public, max-age=86400",
+                Origin: "https://dracin-delta.vercel.app",
             },
+        });
+
+        if (!res.ok) {
+            throw new Error(`EC2 returned ${res.status}`);
+        }
+
+        // Stream the response
+        const headers = new Headers();
+        headers.set("Content-Type", "video/mp4");
+        headers.set("Content-Disposition", `attachment; filename="episode_${msgId}.mp4"`);
+
+        const contentLength = res.headers.get("content-length");
+        if (contentLength) {
+            headers.set("Content-Length", contentLength);
+        }
+
+        return new Response(res.body, {
+            status: 200,
+            headers,
         });
     } catch (error) {
         console.error("Download error:", error);
         return NextResponse.json(
-            { error: "Failed to download video", details: String(error) },
+            {
+                error: "Download failed",
+                message: error instanceof Error ? error.message : "Unknown error",
+                tip: "Pastikan EC2 Security Group sudah open port 3001"
+            },
             { status: 500 }
         );
     }
