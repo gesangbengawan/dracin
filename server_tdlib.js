@@ -427,6 +427,56 @@ app.get('/api/ready', (req, res) => {
     }
 });
 
+// Videos detail API - used by frontend to check ready status
+app.get('/api/videos/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+        const dramasData = JSON.parse(fs.readFileSync(DRAMAS_JSON));
+        const drama = dramasData.dramas_done.find(d => d.id === id);
+
+        let totalEpisodes = drama ? drama.episodes : 0;
+        const dir = path.join(COMPRESSED_DIR, id);
+        let videos = [];
+
+        if (fs.existsSync(dir)) {
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.mp4'));
+            // Map existing files to episode numbers to find max
+            const fileEps = files.map(f => parseInt(f.replace('ep', '').replace('.mp4', ''))).filter(n => !isNaN(n));
+            const maxEp = fileEps.length > 0 ? Math.max(...fileEps) : 0;
+
+            const count = Math.max(totalEpisodes, maxEp);
+
+            for (let i = 1; i <= count; i++) {
+                const filename = `ep${i}.mp4`;
+                const filePath = path.join(dir, filename);
+                const exists = fs.existsSync(filePath);
+                let size = null;
+                if (exists) {
+                    const stat = fs.statSync(filePath);
+                    size = stat.size;
+                }
+
+                videos.push({
+                    episode: i,
+                    ready: exists,
+                    size: size,
+                    messageId: 0,
+                    duration: 0
+                });
+            }
+        } else if (totalEpisodes > 0) {
+            for (let i = 1; i <= totalEpisodes; i++) {
+                videos.push({ episode: i, ready: false });
+            }
+        }
+
+        res.json({ dramaId: id, videos });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Start
 client.connect().then(() => {
     client.login().catch(e => {
