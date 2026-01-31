@@ -351,20 +351,44 @@ async function startDownloadLoop() {
 
 // Queue API
 app.get('/api/queue', (req, res) => {
-    const dramas = JSON.parse(fs.readFileSync(DRAMAS_JSON)).dramas_done;
+    const dramasData = JSON.parse(fs.readFileSync(DRAMAS_JSON));
+    // Sort descending for consistent display
+    const dramas = dramasData.dramas_done.sort((a, b) => b.id - a.id);
     const progress = loadProgress();
     const current = dramas.find(d => d.id === downloadStats.currentDramaId);
+
+    // Get top 10 upcoming (not completed, not current)
+    const upcoming = dramas
+        .filter(d => !progress.completedDramas.includes(d.id) && d.id !== downloadStats.currentDramaId)
+        .slice(0, 10)
+        .map(d => ({ id: d.id, title: d.title, episodes: d.episodes }));
+
     res.json({
         current: current ? { ...current, status: "Downloading" } : null,
-        totalQueued: dramas.length - progress.completedDramas.length
+        upcoming: upcoming,
+        totalQueued: dramas.length - progress.completedDramas.length,
+        priorityQueue: priorityQueue
     });
 });
 app.get('/api/status', (req, res) => res.json({ status: "running", engine: "TDLib", authState }));
 app.post('/api/force-priority/:id', (req, res) => {
     const { id } = req.params;
+    const progress = loadProgress();
+
+    // Check if already downloaded (prevent duplicate)
+    if (progress.completedDramas.includes(id)) {
+        return res.status(400).json({ error: "Already downloaded", id });
+    }
+
+    // Check if already in priority queue
+    if (priorityQueue.includes(id)) {
+        return res.status(400).json({ error: "Already in priority queue", id });
+    }
+
     priorityQueue.unshift(id);
     shouldInterrupt = true;
-    res.json({ success: true });
+    console.log(`[FORCE PRIORITY] ${id} added. Interrupt flag set.`);
+    res.json({ success: true, message: `${id} added to priority queue` });
 });
 
 // Start
