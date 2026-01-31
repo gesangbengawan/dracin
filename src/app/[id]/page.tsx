@@ -217,6 +217,27 @@ export default function DramaDetailPage({ params }: { params: Promise<{ id: stri
                             ))}
                         </div>
                     )}
+
+                    {/* Request Button - show when videos exist but none are ready */}
+                    {videos.length > 0 && !videos.some(v => v.ready) && (
+                        <div className="mt-6 text-center border-t border-white/10 pt-6">
+                            <p className="text-gray-400 text-sm mb-3">Video belum siap? Minta server untuk download!</p>
+
+                            {requestStatus && (
+                                <p className={`text-sm mb-3 ${requestStatus.includes('✅') ? 'text-green-400' : 'text-yellow-400'}`}>
+                                    {requestStatus}
+                                </p>
+                            )}
+
+                            <button
+                                onClick={handleRequestDownload}
+                                disabled={requesting}
+                                className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {requesting ? "Memproses..." : "📥 Request Download"}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
