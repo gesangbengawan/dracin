@@ -1,66 +1,102 @@
--- Create Profiles table (extends auth.users)
-create table public.profiles (
-  id uuid references auth.users not null primary key,
-  email text,
-  display_name text,
-  avatar_url text,
-  role text default 'user',
-  created_at timestamptz default now()
+-- ============================================
+-- DRACIN DATABASE SCHEMA - RUN IN SUPABASE SQL EDITOR
+-- ============================================
+
+-- 1. Profiles table (extends auth.users)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users NOT NULL PRIMARY KEY,
+  email TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
+  role TEXT DEFAULT 'user',
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS
-alter table public.profiles enable row level security;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Policies for Profiles
-create policy "Public profiles are viewable by everyone."
-  on profiles for select
-  using ( true );
+CREATE POLICY "Public profiles are viewable by everyone"
+  ON profiles FOR SELECT USING (true);
 
-create policy "Users can insert their own profile."
-  on profiles for insert
-  with check ( auth.uid() = id );
+CREATE POLICY "Users can insert their own profile"
+  ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
-create policy "Users can update own profile."
-  on profiles for update
-  using ( auth.uid() = id );
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE USING (auth.uid() = id);
 
--- Handle new user signup trigger
-create function public.handle_new_user() 
-returns trigger as $$
-begin
-  insert into public.profiles (id, email, display_name, avatar_url)
-  values (new.id, new.email, new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'avatar_url');
-  return new;
-end;
-$$ language plpgsql security definer;
+-- 2. Auto-create profile on signup
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, display_name, avatar_url)
+  VALUES (
+    NEW.id, 
+    NEW.email, 
+    NEW.raw_user_meta_data->>'full_name', 
+    NEW.raw_user_meta_data->>'avatar_url'
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
-
--- Create Dramas Table (Cache)
-create table public.dramas (
-  id text primary key, -- The WebApp Drama ID (e.g. '10535')
-  title text not null,
-  poster_url text,
-  total_episodes int default 0,
-  updated_at timestamptz default now()
+-- 3. Dramas cache table (for fast search)
+CREATE TABLE IF NOT EXISTS public.dramas (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  poster_url TEXT,
+  total_episodes INT DEFAULT 0,
+  page_number INT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-alter table public.dramas enable row level security;
-create policy "Dramas are viewable by everyone" on public.dramas for select using (true);
-create policy "Only service role can insert/update dramas" on public.dramas for all using (false); -- Backend only
+ALTER TABLE public.dramas ENABLE ROW LEVEL SECURITY;
 
--- Create User Watch History / Logs
-create table public.watch_history (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.profiles(id),
-  drama_id text references public.dramas(id),
-  episode int,
-  watched_at timestamptz default now()
+CREATE POLICY "Dramas are viewable by everyone" 
+  ON public.dramas FOR SELECT USING (true);
+
+CREATE POLICY "Service role can manage dramas" 
+  ON public.dramas FOR ALL USING (true);
+
+-- 4. Create index for fast search
+CREATE INDEX IF NOT EXISTS idx_dramas_title ON public.dramas USING gin(to_tsvector('simple', title));
+CREATE INDEX IF NOT EXISTS idx_dramas_title_lower ON public.dramas (LOWER(title));
+
+-- 5. Watch history
+CREATE TABLE IF NOT EXISTS public.watch_history (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id),
+  drama_id TEXT REFERENCES public.dramas(id),
+  episode INT,
+  message_id INT,
+  watched_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-alter table public.watch_history enable row level security;
-create policy "Users can see own history" on public.watch_history for select using (auth.uid() = user_id);
-create policy "Users can insert own history" on public.watch_history for insert with check (auth.uid() = user_id);
+ALTER TABLE public.watch_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can see own history" 
+  ON public.watch_history FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own history" 
+  ON public.watch_history FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- 6. Function to search dramas (fast full-text search)
+CREATE OR REPLACE FUNCTION search_dramas(search_query TEXT, result_limit INT DEFAULT 50)
+RETURNS SETOF public.dramas AS $$
+BEGIN
+  RETURN QUERY
+  SELECT * FROM public.dramas
+  WHERE LOWER(title) LIKE '%' || LOWER(search_query) || '%'
+  ORDER BY 
+    CASE WHEN LOWER(title) LIKE LOWER(search_query) || '%' THEN 0 ELSE 1 END,
+    title
+  LIMIT result_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Done!
+SELECT 'Schema created successfully!' as status;

@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Play, Film, Loader2, X } from "lucide-react";
+import { Search, Play, Film, Loader2, X, User, LogIn } from "lucide-react";
+import Link from "next/link";
+import Image from "next/image";
 
 interface Drama {
   id: string;
   title: string;
-  messageId: number;
-  date: string;
-  hasVideo: boolean;
+  poster_url?: string;
 }
 
 interface Video {
@@ -26,31 +26,63 @@ export default function HomePage() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [playingVideo, setPlayingVideo] = useState<number | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [page, setPage] = useState(1);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  // Load initial dramas
-  useEffect(() => {
-    fetchDramas();
-  }, []);
+  // Debounced search
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
 
-  const fetchDramas = async (searchQuery = "") => {
+    if (searchTimeout) clearTimeout(searchTimeout);
+
+    const timeout = setTimeout(() => {
+      if (value.length >= 2) {
+        fetchDramas(value);
+      } else if (value.length === 0) {
+        fetchDramas("");
+      }
+    }, 300);
+
+    setSearchTimeout(timeout);
+  };
+
+  const fetchDramas = useCallback(async (searchQuery = "", pageNum = 1) => {
     setLoading(true);
     try {
-      const url = searchQuery
-        ? `/api/dramas?q=${encodeURIComponent(searchQuery)}`
-        : "/api/dramas";
-      const res = await fetch(url);
+      const params = new URLSearchParams();
+      if (searchQuery) params.set("q", searchQuery);
+      params.set("page", pageNum.toString());
+      params.set("limit", "24");
+
+      const res = await fetch(`/api/dramas?${params}`);
       const data = await res.json();
-      setDramas(data.dramas || []);
+
+      if (pageNum === 1) {
+        setDramas(data.dramas || []);
+      } else {
+        setDramas(prev => [...prev, ...(data.dramas || [])]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchDramas("", 1);
+  }, [fetchDramas]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchDramas(query);
+    setPage(1);
+    fetchDramas(query, 1);
+  };
+
+  const loadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchDramas(query, nextPage);
   };
 
   const selectDrama = async (drama: Drama) => {
@@ -86,16 +118,25 @@ export default function HomePage() {
             </div>
             <h1 className="text-2xl font-bold gradient-text">Dracin</h1>
           </div>
+
+          {/* Login Button */}
+          <Link
+            href="/login"
+            className="flex items-center gap-2 btn-secondary py-2 px-4 text-sm"
+          >
+            <LogIn className="w-4 h-4" />
+            <span className="hidden sm:inline">Login</span>
+          </Link>
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="py-16 px-4">
+      <section className="py-12 px-4">
         <div className="container mx-auto text-center">
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-4xl md:text-5xl font-bold mb-6"
+            className="text-3xl md:text-5xl font-bold mb-4"
           >
             Stream Your Favorite{" "}
             <span className="gradient-text">Asian Dramas</span>
@@ -104,9 +145,9 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-lg text-gray-400 mb-10 max-w-xl mx-auto"
+            className="text-gray-400 mb-8 max-w-xl mx-auto"
           >
-            Search and watch dramas instantly. Your personal streaming library.
+            Search and watch dramas instantly. Fast & free streaming.
           </motion.p>
 
           {/* Search Bar */}
@@ -121,12 +162,16 @@ export default function HomePage() {
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search drama titles..."
+              onChange={(e) => handleQueryChange(e.target.value)}
+              placeholder="Ketik judul drama... (min. 2 karakter)"
               className="input-cyber pl-14 pr-32"
             />
-            <button type="submit" className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-6">
-              Search
+            <button
+              type="submit"
+              className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-6"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Cari"}
             </button>
           </motion.form>
         </div>
@@ -137,42 +182,78 @@ export default function HomePage() {
         <div className="container mx-auto">
           <h3 className="text-xl font-semibold mb-6 flex items-center gap-2">
             <Film className="w-5 h-5 text-cyan-400" />
-            {query ? "Search Results" : "Recent Dramas"}
+            {query ? `Hasil: "${query}"` : "Drama Terbaru"}
+            {dramas.length > 0 && (
+              <span className="text-sm text-gray-500 font-normal">
+                ({dramas.length} drama)
+              </span>
+            )}
           </h3>
 
-          {loading ? (
+          {loading && dramas.length === 0 ? (
             <div className="flex justify-center py-20">
               <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
             </div>
           ) : dramas.length === 0 ? (
             <div className="text-center py-20 text-gray-400">
               <Film className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <p>No dramas found. Try searching for a title!</p>
+              <p>Tidak ada drama ditemukan.</p>
+              <p className="text-sm mt-2">Coba kata kunci lain!</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {dramas.map((drama, index) => (
-                <motion.div
-                  key={drama.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  onClick={() => selectDrama(drama)}
-                  className="glass-card p-4 cursor-pointer group"
-                >
-                  <div className="aspect-[3/4] bg-gradient-to-br from-purple-900/50 to-cyan-900/50 rounded-lg mb-4 flex items-center justify-center relative overflow-hidden">
-                    <Film className="w-12 h-12 text-cyan-400/50" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-6">
-                      <Play className="w-12 h-12 text-white" />
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {dramas.map((drama, index) => (
+                  <motion.div
+                    key={`${drama.id}-${index}`}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(index * 0.03, 0.3) }}
+                    onClick={() => selectDrama(drama)}
+                    className="glass-card p-2 cursor-pointer group"
+                  >
+                    <div className="aspect-[3/4] relative rounded-lg overflow-hidden mb-2 bg-gradient-to-br from-purple-900/50 to-cyan-900/50">
+                      {drama.poster_url ? (
+                        <img
+                          src={drama.poster_url}
+                          alt={drama.title}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Film className="w-10 h-10 text-cyan-400/50" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                        <Play className="w-10 h-10 text-white" />
+                      </div>
                     </div>
-                  </div>
-                  <h4 className="font-semibold text-sm line-clamp-2 group-hover:text-cyan-400 transition-colors">
-                    {drama.title}
-                  </h4>
-                  <p className="text-xs text-gray-500 mt-1">ID: {drama.id}</p>
-                </motion.div>
-              ))}
-            </div>
+                    <h4 className="font-medium text-xs line-clamp-2 group-hover:text-cyan-400 transition-colors px-1">
+                      {drama.title}
+                    </h4>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Load More */}
+              <div className="mt-8 text-center">
+                <button
+                  onClick={loadMore}
+                  disabled={loading}
+                  className="btn-secondary"
+                >
+                  {loading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    "Load More"
+                  )}
+                </button>
+              </div>
+            </>
           )}
         </div>
       </section>
@@ -198,10 +279,27 @@ export default function HomePage() {
               className="glass-card w-full max-w-4xl max-h-[90vh] overflow-auto"
             >
               <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-2xl font-bold gradient-text">
-                    {selectedDrama.title}
-                  </h3>
+                <div className="flex items-start gap-4 mb-6">
+                  {/* Poster */}
+                  {selectedDrama.poster_url && (
+                    <div className="w-24 h-32 rounded-lg overflow-hidden flex-shrink-0">
+                      <img
+                        src={selectedDrama.poster_url}
+                        alt={selectedDrama.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-bold gradient-text mb-2">
+                      {selectedDrama.title}
+                    </h3>
+                    <p className="text-sm text-gray-400">
+                      ID: {selectedDrama.id}
+                    </p>
+                  </div>
+
                   <button
                     onClick={() => {
                       setSelectedDrama(null);
@@ -232,9 +330,14 @@ export default function HomePage() {
                     <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                   </div>
                 ) : videos.length === 0 ? (
-                  <p className="text-gray-500 text-center py-10">
-                    No episodes found for this drama.
-                  </p>
+                  <div className="text-center py-10">
+                    <p className="text-gray-500 mb-4">
+                      Belum ada episode yang tersedia.
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Video akan muncul setelah drama di-trigger dari Telegram.
+                    </p>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {videos.map((video) => (
