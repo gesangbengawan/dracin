@@ -406,14 +406,14 @@ function HomeContent() {
                       <Play className="w-16 h-16 text-cyan-400 mb-4 animate-pulse" />
                       <h3 className="text-xl font-bold mb-2">Episode {playingEpisode} siap</h3>
                       <p className="text-gray-300 text-sm mb-6 max-w-xs text-center">Klik tombol di bawah untuk memutar video di tab baru (Player Native).</p>
-                      <a
-                        href={`/api/stream/${selectedDrama.id}/${playingEpisode}`}
+                      <Link
+                        href={`/watch/${selectedDrama.id}/${playingEpisode}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn-primary py-3 px-8 flex items-center gap-2 text-lg hover:scale-105 transition-transform"
                       >
                         <Play className="w-5 h-5 fill-current" /> Putar Sekarang
-                      </a>
+                      </Link>
                     </div>
                   </div>
                 )}
