@@ -1,17 +1,4 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "package.json",
-            "use": "@vercel/next"
-        }
-    ],
-    "env": {
-        "NEXT_PUBLIC_SUPABASE_URL": "@supabase-url",
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key",
-        "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-key",
-        "TELEGRAM_API_ID": "@telegram-api-id",
-        "TELEGRAM_API_HASH": "@telegram-api-hash",
-        "TELEGRAM_SESSION": "@telegram-session"
-    }
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "framework": "nextjs"
 }
