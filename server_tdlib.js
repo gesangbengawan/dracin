@@ -403,11 +403,15 @@ app.get('/api/ready', (req, res) => {
             return fs.statSync(p).isDirectory();
         });
 
+        const dramasData = JSON.parse(fs.readFileSync(DRAMAS_JSON));
+        const dramaMap = new Map((dramasData.dramas_done || []).map(d => [d.id, d.title]));
+
         const films = dramaFolders.map(folder => {
             const folderPath = path.join(COMPRESSED_DIR, folder);
             const episodes = fs.readdirSync(folderPath).filter(f => f.endsWith('.mp4'));
             return {
                 dramaId: folder,
+                title: dramaMap.get(folder) || "Unknown Title",
                 episodeCount: episodes.length,
                 episodes: episodes.map(e => parseInt(e.replace('ep', '').replace('.mp4', '')))
             };

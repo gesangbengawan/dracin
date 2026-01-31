@@ -60,6 +60,7 @@ interface QueueData {
 
 interface ReadyFilm {
     dramaId: string;
+    title: string;
     episodeCount: number;
     episodes: number[];
 }
@@ -429,9 +430,12 @@ export default function AdminPage() {
                                 {readyFilms.length > 0 ? (
                                     <div className="space-y-2 text-sm max-h-60 overflow-y-auto">
                                         {readyFilms.slice(0, 20).map((film, idx) => (
-                                            <div key={idx} className="flex justify-between p-2 bg-white/5 rounded">
-                                                <span className="text-cyan-400 font-mono">{film.dramaId}</span>
-                                                <span className="text-gray-400">{film.episodeCount} eps</span>
+                                            <div key={idx} className="flex justify-between items-center p-2 bg-white/5 rounded">
+                                                <div>
+                                                    <div className="font-medium text-sm">{film.title}</div>
+                                                    <div className="text-xs text-cyan-400 font-mono">ID: {film.dramaId}</div>
+                                                </div>
+                                                <span className="text-gray-400 text-xs">{film.episodeCount} eps</span>
                                             </div>
                                         ))}
                                         {readyFilms.length > 20 && <div className="text-gray-500 text-center text-xs">...dan {readyFilms.length - 20} lainnya</div>}
