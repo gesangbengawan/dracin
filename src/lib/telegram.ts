@@ -1,6 +1,5 @@
-import { TelegramClient, Api } from "telegram";
+import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
-import * as cheerio from "cheerio";
 
 const API_ID = parseInt(process.env.TELEGRAM_API_ID || "0");
 const API_HASH = process.env.TELEGRAM_API_HASH || "";
@@ -9,8 +8,6 @@ const SESSION_STRING = process.env.TELEGRAM_SESSION || "";
 let clientInstance: TelegramClient | null = null;
 
 const BOT_USERNAME = "IDShortBot";
-const BASE_URL = "https://mtshort.com";
-const WEBAPP_URL = `${BASE_URL}/webapp/dramas`;
 
 export async function getTelegramClient(): Promise<TelegramClient> {
     if (clientInstance && clientInstance.connected) {
@@ -26,143 +23,163 @@ export async function getTelegramClient(): Promise<TelegramClient> {
     return clientInstance;
 }
 
-export interface Drama {
-    id: string;
-    title: string;
-    poster?: string;
-    messageId?: number;
-    date?: Date;
-}
-
-export interface VideoMessage {
+export interface VideoInfo {
     messageId: number;
-    title: string;
+    dramaId: string;
+    episodeNum: number;
     size: number;
-    duration: number;
     mimeType: string;
+    duration: number;
+    thumbUrl?: string;
+}
+
+export interface DramaVideoIndex {
+    dramaId: string;
+    title: string;
+    videos: VideoInfo[];
 }
 
 /**
- * Fetch dramas from WebApp (mtshort.com)
+ * Scrape all videos from Telegram chat and index by drama ID
  */
-async function fetchDramasFromWebApp(page = 1): Promise<Drama[]> {
-    const url = `${WEBAPP_URL}?page=${page}&tab=latest`;
-
-    try {
-        const response = await fetch(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 12) Chrome/120.0.0.0 Mobile",
-            },
-        });
-
-        if (!response.ok) return [];
-
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        const dramas: Drama[] = [];
-
-        // Parse drama cards
-        $('div[data-drama-id]').each((_, el) => {
-            const $el = $(el);
-            const id = $el.attr('data-drama-id');
-            const title = $el.attr('title') || $el.find('.title').text().trim();
-            const img = $el.find('img').attr('src');
-
-            if (id && title) {
-                dramas.push({
-                    id,
-                    title: title.substring(0, 100),
-                    poster: img ? (img.startsWith('http') ? img : `${BASE_URL}${img}`) : undefined,
-                });
-            }
-        });
-
-        return dramas;
-    } catch (error) {
-        console.error("Fetch WebApp error:", error);
-        return [];
-    }
-}
-
-/**
- * Search dramas - fetches from WebApp and filters by query
- */
-export async function searchDramas(query: string, limit = 50): Promise<Drama[]> {
-    // Fetch multiple pages to have more data
-    const allDramas: Drama[] = [];
-
-    for (let page = 1; page <= 5; page++) {
-        const dramas = await fetchDramasFromWebApp(page);
-        allDramas.push(...dramas);
-        if (dramas.length === 0) break;
-    }
-
-    // Filter by query
-    const filtered = query
-        ? allDramas.filter(d => d.title.toLowerCase().includes(query.toLowerCase()))
-        : allDramas;
-
-    return filtered.slice(0, limit);
-}
-
-/**
- * Get all dramas with pagination
- */
-export async function getAllDramas(page = 1, perPage = 24): Promise<{ dramas: Drama[]; total: number }> {
-    // Calculate which WebApp pages to fetch
-    const webAppPage = Math.ceil(page * perPage / 24);
-    const dramas = await fetchDramasFromWebApp(webAppPage);
-
-    return {
-        dramas: dramas.slice(0, perPage),
-        total: 419 * 24, // Approximate total (419 pages)
-    };
-}
-
-/**
- * Get videos for a drama from chat history
- */
-export async function getDramaVideos(dramaId: string): Promise<VideoMessage[]> {
+export async function scrapeAllVideos(limit = 2000): Promise<Map<string, DramaVideoIndex>> {
     const client = await getTelegramClient();
     const bot = await client.getEntity(BOT_USERNAME);
 
-    const messages = await client.getMessages(bot, { limit: 1000 });
-    const videos: VideoMessage[] = [];
+    const index = new Map<string, DramaVideoIndex>();
+    let currentDramaId: string | null = null;
+    let currentTitle = "";
+    let episodeCounter = 0;
 
-    let foundDrama = false;
-    let episodeCount = 0;
+    // Get messages (newest first, so we iterate in reverse)
+    const messages = await client.getMessages(bot, { limit });
 
-    // Look for drama ID in messages
+    // Process in chronological order (oldest first)
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         const text = msg.message || "";
 
-        // Check if this message mentions our drama ID
-        if (text.includes(`Drama ID: ${dramaId}`) || text.includes(`playfirst-${dramaId}`)) {
-            foundDrama = true;
+        // Detect drama title message (sent by us)
+        const idMatch = text.match(/Drama ID[:\s]+(\d+)/i) ||
+            text.match(/playfirst-(\d+)/);
+
+        if (idMatch) {
+            currentDramaId = idMatch[1];
+            episodeCounter = 0;
+
+            // Extract title
+            const titleMatch = text.match(/🎬\s*(.+?)[\n\r]/);
+            currentTitle = titleMatch ? titleMatch[1].trim() : `Drama ${currentDramaId}`;
+
+            if (!index.has(currentDramaId)) {
+                index.set(currentDramaId, {
+                    dramaId: currentDramaId,
+                    title: currentTitle,
+                    videos: [],
+                });
+            }
             continue;
         }
 
-        // Collect videos after finding the drama
+        // Detect video message (from bot)
+        if (currentDramaId && msg.media) {
+            const media = msg.media as any;
+
+            // Check if it's a document (video)
+            if (media.document) {
+                const doc = media.document;
+                const mimeType = doc.mimeType || "";
+
+                if (mimeType.startsWith("video/")) {
+                    episodeCounter++;
+
+                    // Get duration from attributes
+                    let duration = 0;
+                    if (doc.attributes) {
+                        for (const attr of doc.attributes) {
+                            if (attr.className === "DocumentAttributeVideo") {
+                                duration = attr.duration || 0;
+                                break;
+                            }
+                        }
+                    }
+
+                    const videoInfo: VideoInfo = {
+                        messageId: msg.id,
+                        dramaId: currentDramaId,
+                        episodeNum: episodeCounter,
+                        size: doc.size || 0,
+                        mimeType,
+                        duration,
+                    };
+
+                    const dramaData = index.get(currentDramaId);
+                    if (dramaData) {
+                        dramaData.videos.push(videoInfo);
+                    }
+                }
+            }
+        }
+    }
+
+    return index;
+}
+
+/**
+ * Get videos for a specific drama ID
+ */
+export async function getVideosForDrama(dramaId: string): Promise<VideoInfo[]> {
+    const client = await getTelegramClient();
+    const bot = await client.getEntity(BOT_USERNAME);
+
+    const videos: VideoInfo[] = [];
+    let foundDrama = false;
+    let episodeCounter = 0;
+
+    const messages = await client.getMessages(bot, { limit: 2000 });
+
+    // Process chronologically
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const text = msg.message || "";
+
+        // Check for drama ID marker
+        if (text.includes(`playfirst-${dramaId}`) || text.includes(`Drama ID: ${dramaId}`)) {
+            foundDrama = true;
+            episodeCounter = 0;
+            continue;
+        }
+
+        // If we found the drama, collect videos
         if (foundDrama) {
-            // Stop if we hit another drama marker
-            if (text.includes("Drama ID:") || text.includes("playfirst-")) {
+            // Stop if we hit another drama
+            if (text.match(/playfirst-\d+/) || text.match(/Drama ID:\s*\d+/)) {
                 break;
             }
 
             // Check for video
-            if (msg.media && (msg.media as any).document) {
-                const doc = (msg.media as any).document;
-                const isVideo = doc.mimeType?.startsWith("video/");
+            if (msg.media) {
+                const media = msg.media as any;
+                if (media.document && media.document.mimeType?.startsWith("video/")) {
+                    episodeCounter++;
+                    const doc = media.document;
 
-                if (isVideo) {
-                    episodeCount++;
+                    let duration = 0;
+                    if (doc.attributes) {
+                        for (const attr of doc.attributes) {
+                            if (attr.className === "DocumentAttributeVideo") {
+                                duration = attr.duration || 0;
+                            }
+                        }
+                    }
+
                     videos.push({
                         messageId: msg.id,
-                        title: `Episode ${episodeCount}`,
+                        dramaId,
+                        episodeNum: episodeCounter,
                         size: doc.size || 0,
-                        duration: 0,
                         mimeType: doc.mimeType,
+                        duration,
                     });
                 }
             }
@@ -173,32 +190,7 @@ export async function getDramaVideos(dramaId: string): Promise<VideoMessage[]> {
 }
 
 /**
- * Trigger drama and get first video
- */
-export async function triggerDrama(dramaId: string, title: string): Promise<boolean> {
-    try {
-        const client = await getTelegramClient();
-        const bot = await client.getEntity(BOT_USERNAME);
-
-        // Send title marker
-        await client.sendMessage(bot, {
-            message: `🎬 ${title}\n\n📌 Drama ID: ${dramaId}`,
-        });
-
-        // Send trigger command
-        await client.sendMessage(bot, {
-            message: `/start playfirst-${dramaId}`,
-        });
-
-        return true;
-    } catch (error) {
-        console.error("Trigger error:", error);
-        return false;
-    }
-}
-
-/**
- * Stream video from a message
+ * Stream video from Telegram
  */
 export async function* streamVideo(messageId: number): AsyncGenerator<Buffer> {
     const client = await getTelegramClient();
@@ -213,8 +205,31 @@ export async function* streamVideo(messageId: number): AsyncGenerator<Buffer> {
 
     for await (const chunk of client.iterDownload({
         file: msg.media,
-        requestSize: 512 * 1024,
+        requestSize: 512 * 1024, // 512KB chunks
     })) {
         yield chunk as Buffer;
     }
+}
+
+/**
+ * Get video file info
+ */
+export async function getVideoInfo(messageId: number): Promise<{ size: number; mimeType: string } | null> {
+    const client = await getTelegramClient();
+    const bot = await client.getEntity(BOT_USERNAME);
+
+    const messages = await client.getMessages(bot, { ids: [messageId] });
+    if (!messages.length || !messages[0].media) {
+        return null;
+    }
+
+    const media = messages[0].media as any;
+    if (media.document) {
+        return {
+            size: media.document.size || 0,
+            mimeType: media.document.mimeType || "video/mp4",
+        };
+    }
+
+    return null;
 }

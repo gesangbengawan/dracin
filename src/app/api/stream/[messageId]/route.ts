@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { streamVideo } from "@/lib/telegram";
+import { streamVideo, getVideoInfo } from "@/lib/telegram";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Allow 60s for video streaming
 
 export async function GET(
     request: NextRequest,
@@ -13,15 +16,31 @@ export async function GET(
     }
 
     try {
-        // Create a readable stream from the async generator
+        // Get video info first
+        const info = await getVideoInfo(msgId);
+        if (!info) {
+            return NextResponse.json({ error: "Video not found" }, { status: 404 });
+        }
+
+        // Check for range request
+        const range = request.headers.get("range");
+
+        if (range) {
+            // For range requests, we need to handle partial content
+            // For simplicity, we'll stream the full video
+            // (Proper range support requires knowing file size upfront)
+        }
+
+        // Create readable stream
         const stream = new ReadableStream({
             async start(controller) {
                 try {
                     for await (const chunk of streamVideo(msgId)) {
-                        controller.enqueue(chunk);
+                        controller.enqueue(new Uint8Array(chunk));
                     }
                     controller.close();
                 } catch (err) {
+                    console.error("Stream error:", err);
                     controller.error(err);
                 }
             },
@@ -29,8 +48,10 @@ export async function GET(
 
         return new Response(stream, {
             headers: {
-                "Content-Type": "video/mp4",
+                "Content-Type": info.mimeType,
+                "Accept-Ranges": "bytes",
                 "Cache-Control": "public, max-age=3600",
+                ...(info.size > 0 && { "Content-Length": info.size.toString() }),
             },
         });
     } catch (error) {
