@@ -113,7 +113,8 @@ app.post('/api/auth/code', async (req, res) => {
 // ... [Supabase & Queue vars] ...
 const supabase = createSupabaseClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 let isDownloading = false;
-let priorityQueue = [];
+let priorityQueue = [];     // Force priority (admin) - interrupts
+let requestQueue = [];       // Request priority (user) - no interrupt, just queue top
 let shouldInterrupt = false;
 let downloadStats = { total: 0, done: 0, currentDramaId: null };
 
@@ -299,20 +300,21 @@ async function startDownloadLoop() {
 
         if (priorityQueue.length > 0) {
             const pid = priorityQueue.shift();
-            drama = dramas.find(d => d.id === pid); // Note: find in sorted list
+            drama = dramas.find(d => d.id === pid);
             if (!drama) {
-                // Fallback if not in sorted list (e.g. older ignored one)? 
-                // Reload original list? No, assumption is list is complete.
-                dramaData.dramas_done.find(d => d.id === pid);
+                dramasData.dramas_done.find(d => d.id === pid);
             }
             isPriority = true;
+        } else if (requestQueue.length > 0) {
+            // Process user requests (no interrupt was needed, just next in line)
+            const rid = requestQueue.shift();
+            drama = dramas.find(d => d.id === rid);
+            if (!drama) {
+                dramasData.dramas_done.find(d => d.id === rid);
+            }
+            console.log(`[REQUEST] Processing requested drama ${rid}`);
         } else {
-            // Processing linear queue
-            // We need a consistent way to track index in the SORTED list
-            // If progress.lastDramaIndex references index in ORIGINAL list, it might be wrong now.
-            // We should rely on 'completedDramas' array + iterating the sorted 'dramas' array.
-
-            // Find first drama in sorted list that is NOT completed
+            // Processing linear queue - find first not completed
             drama = dramas.find(d => !progress.completedDramas.includes(d.id));
 
             if (!drama) { console.log("All done"); break; }
@@ -410,7 +412,8 @@ app.get('/api/queue', (req, res) => {
         current: current ? { ...current, status: "Downloading" } : null,
         upcoming: upcoming,
         totalQueued: dramas.length - progress.completedDramas.length,
-        priorityQueue: priorityQueue
+        priorityQueue: priorityQueue,
+        requestQueue: requestQueue
     });
 });
 app.get('/api/status', (req, res) => res.json({ status: "running", engine: "TDLib", authState }));
@@ -432,6 +435,32 @@ app.post('/api/force-priority/:id', (req, res) => {
     shouldInterrupt = true;
     console.log(`[FORCE PRIORITY] ${id} added. Interrupt flag set.`);
     res.json({ success: true, message: `${id} added to priority queue` });
+});
+
+// Request Priority API - User requests (no interrupt, just add to top of queue)
+app.post('/api/request/:id', (req, res) => {
+    const { id } = req.params;
+    const progress = loadProgress();
+
+    // Check if already downloaded
+    if (progress.completedDramas.includes(id)) {
+        return res.status(400).json({ error: "Already downloaded", id });
+    }
+
+    // Check if already in request queue
+    if (requestQueue.includes(id)) {
+        return res.status(400).json({ error: "Already requested", id });
+    }
+
+    // Check if already in force priority queue
+    if (priorityQueue.includes(id)) {
+        return res.status(400).json({ error: "Already in force priority", id });
+    }
+
+    // Add to request queue (no interrupt)
+    requestQueue.unshift(id);
+    console.log(`[REQUEST PRIORITY] ${id} added to request queue.`);
+    res.json({ success: true, message: `${id} added to request queue (will download soon)` });
 });
 
 // Ready films API - list completed downloads

@@ -27,6 +27,26 @@ export default function DramaDetailPage({ params }: { params: Promise<{ id: stri
     const [loading, setLoading] = useState(true);
     const [playingEpisode, setPlayingEpisode] = useState<number | null>(null);
     const [videoMessage, setVideoMessage] = useState("");
+    const [requesting, setRequesting] = useState(false);
+    const [requestStatus, setRequestStatus] = useState<string | null>(null);
+
+    const handleRequestDownload = async () => {
+        setRequesting(true);
+        setRequestStatus(null);
+        try {
+            const res = await fetch(`/api/request/${id}`, { method: "POST" });
+            const data = await res.json();
+            if (res.ok) {
+                setRequestStatus("✅ Permintaan berhasil! Drama akan segera di-download.");
+            } else {
+                setRequestStatus(`⚠️ ${data.error || "Gagal request"}`);
+            }
+        } catch (e) {
+            setRequestStatus("❌ Gagal menghubungi server.");
+        } finally {
+            setRequesting(false);
+        }
+    };
 
     useEffect(() => {
         async function loadData() {
@@ -138,7 +158,21 @@ export default function DramaDetailPage({ params }: { params: Promise<{ id: stri
                         <div className="text-center py-10">
                             <Film className="w-12 h-12 text-gray-600 mx-auto mb-3" />
                             <p className="text-gray-500 mb-2">Video belum tersedia di server.</p>
-                            <p className="text-xs text-gray-600">Drama ini belum pernah di-download atau masih dalam antrian.</p>
+                            <p className="text-xs text-gray-600 mb-4">Klik tombol di bawah untuk meminta download.</p>
+
+                            {requestStatus && (
+                                <p className={`text-sm mb-4 ${requestStatus.includes('✅') ? 'text-green-400' : 'text-yellow-400'}`}>
+                                    {requestStatus}
+                                </p>
+                            )}
+
+                            <button
+                                onClick={handleRequestDownload}
+                                disabled={requesting}
+                                className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {requesting ? "Memproses..." : "📥 Request Download"}
+                            </button>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
