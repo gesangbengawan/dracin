@@ -351,20 +351,22 @@ function HomeContent() {
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {dramas.map((drama, index) => (
-                  <motion.div key={`${drama.id}-${index}`} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: Math.min(index * 0.02, 0.2) }} onClick={() => selectDrama(drama)} className="glass-card p-2 cursor-pointer group hover:border-cyan-500/50">
-                    <div className="aspect-[3/4] relative rounded-lg overflow-hidden mb-2 bg-gradient-to-br from-purple-900/50 to-cyan-900/50">
-                      {drama.poster_url ? (
-                        <img src={drama.poster_url} alt={drama.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Film className="w-8 h-8 text-cyan-400/30" /></div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
-                        <Play className="w-8 h-8 text-white drop-shadow-lg" />
+                  <Link key={`${drama.id}-${index}`} href={`/${drama.id}`}>
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: Math.min(index * 0.02, 0.2) }} className="glass-card p-2 cursor-pointer group hover:border-cyan-500/50">
+                      <div className="aspect-[3/4] relative rounded-lg overflow-hidden mb-2 bg-gradient-to-br from-purple-900/50 to-cyan-900/50">
+                        {drama.poster_url ? (
+                          <img src={drama.poster_url} alt={drama.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Film className="w-8 h-8 text-cyan-400/30" /></div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
+                          <Play className="w-8 h-8 text-white drop-shadow-lg" />
+                        </div>
+                        {drama.total_episodes && <div className="absolute top-2 right-2 bg-black/70 text-xs px-2 py-1 rounded">{drama.total_episodes} Eps</div>}
                       </div>
-                      {drama.total_episodes && <div className="absolute top-2 right-2 bg-black/70 text-xs px-2 py-1 rounded">{drama.total_episodes} Eps</div>}
-                    </div>
-                    <h4 className="font-medium text-xs line-clamp-2 group-hover:text-cyan-400 px-1 leading-tight">{drama.title}</h4>
-                  </motion.div>
+                      <h4 className="font-medium text-xs line-clamp-2 group-hover:text-cyan-400 px-1 leading-tight">{drama.title}</h4>
+                    </motion.div>
+                  </Link>
                 ))}
               </div>
 

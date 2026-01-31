@@ -223,11 +223,41 @@ async function findVideos(dramaId, limit) {
     // Usually bot sends Ep1, then Ep2. So newer messages are higher eps.
 }
 
-// Compress Logic (Same as before)
+// Compress Logic - FIXED: Use veryfast preset and validate output
 function compressVideo(input, output) {
     return new Promise((resolve, reject) => {
-        const ffmpeg = spawn("ffmpeg", ["-i", input, "-c:v", "libx264", "-preset", "fast", "-crf", "30", "-y", output]);
-        ffmpeg.on('close', code => code === 0 ? resolve() : reject(new Error('ffmpeg failed')));
+        console.log(`[FFMPEG] Compressing ${input} -> ${output}`);
+        // -preset veryfast = faster but slightly larger file
+        // -crf 28 = good quality/size balance
+        // -c:a copy = keep original audio (faster, no re-encode)
+        const ffmpeg = spawn("ffmpeg", [
+            "-i", input,
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "28",
+            "-c:a", "copy",
+            "-y",
+            output
+        ]);
+
+        let stderr = "";
+        ffmpeg.stderr.on('data', (data) => { stderr += data.toString(); });
+
+        ffmpeg.on('close', code => {
+            if (code === 0) {
+                // Validate output exists and has size
+                if (fs.existsSync(output) && fs.statSync(output).size > 1000) {
+                    console.log(`[FFMPEG] Success: ${output}`);
+                    resolve();
+                } else {
+                    console.error(`[FFMPEG] Output file invalid: ${output}`);
+                    reject(new Error('ffmpeg output invalid'));
+                }
+            } else {
+                console.error(`[FFMPEG] Failed (code ${code}):\n${stderr.slice(-500)}`);
+                reject(new Error('ffmpeg failed'));
+            }
+        });
     });
 }
 
@@ -236,19 +266,21 @@ function compressVideo(input, output) {
 async function startDownloadLoop() {
     if (isDownloading) return;
     isDownloading = true;
-    console.log("=== Starting TDLib Download Loop (SEARCH ONLY / DESCENDING) ===");
+    console.log("=== Starting TDLib Download Loop (10475 FIRST, THEN DESCENDING) ===");
 
     const dramasData = JSON.parse(fs.readFileSync(DRAMAS_JSON));
 
     // Sort Descending (Highest ID first, e.g. 10696 -> 10475 -> ...)
-    const dramas = dramasData.dramas_done.sort((a, b) => b.id - a.id);
+    let dramas = dramasData.dramas_done.sort((a, b) => parseInt(b.id) - parseInt(a.id));
 
-    // Find index of 10475 if specific start needed (Optional based on request)
-    // User said "Start from 10475... then sort from 10696". 
-    // If we just sort from 10696, we eventually hit 10475.
-    // I will stick to pure descending sort.
+    // USER REQUEST: Start with 10475 first, then proceed with highest IDs
+    const start10475 = dramas.find(d => d.id === "10475");
+    if (start10475) {
+        dramas = dramas.filter(d => d.id !== "10475");
+        dramas.unshift(start10475); // Put 10475 at the front
+    }
 
-    console.log(`[QUEUE] Total bucket: ${dramas.length}. Top: ${dramas[0].id}`);
+    console.log(`[QUEUE] Total bucket: ${dramas.length}. First: ${dramas[0]?.id}`);
 
     while (true) {
         // Priority Queue Logic
