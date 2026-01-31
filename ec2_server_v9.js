@@ -42,6 +42,10 @@ let downloadStats = {
 // Priority Queue
 let priorityQueue = [];
 
+// Force Priority Interrupt State
+let shouldInterrupt = false;
+let interruptedDrama = null;
+
 // Load/save progress
 function loadProgress() {
     if (fs.existsSync(PROGRESS_FILE)) {
@@ -199,6 +203,12 @@ async function processDrama(drama) {
         const bot = await tg.getEntity(BOT_USERNAME);
 
         for (let i = 0; i < videos.length; i++) {
+            // Check for interrupt - stop if priority queue has items
+            if (shouldInterrupt && priorityQueue.length > 0) {
+                console.log('[INTERRUPT] Stopping drama ' + dramaId + ' for priority...');
+                shouldInterrupt = false;
+                return 'interrupted';
+            }
             const episode = i + 1;
             const video = videos[i];
             const compressedPath = path.join(dramaDir, `ep${episode}.mp4`);
@@ -225,9 +235,9 @@ async function processDrama(drama) {
                     continue;
                 }
 
-                const buffer = await tg.downloadMedia(msgs[0], {});
-                fs.writeFileSync(rawPath, buffer);
-                const rawSize = buffer.length / (1024 * 1024);
+                await tg.downloadMedia(msgs[0], { outputFile: rawPath, workers: 16 });
+                // fs.writeFileSync handled by downloadMedia
+                const rawSize = fs.statSync(rawPath).size / (1024 * 1024);
                 console.log(`[DOWNLOAD] Raw: ${rawSize.toFixed(0)} MB`);
 
                 // Compress
@@ -538,7 +548,7 @@ app.get("/api/stream/:messageId", async (req, res) => {
         const bot = await tg.getEntity(BOT_USERNAME);
         const msgs = await tg.getMessages(bot, { ids: [messageId] });
         if (!msgs.length || !msgs[0].media) return res.status(404).json({ error: "Video not found" });
-        const buffer = await tg.downloadMedia(msgs[0], {});
+        await tg.downloadMedia(msgs[0], { outputFile: rawPath, workers: 16 });
         res.setHeader("Content-Type", "video/mp4");
         res.setHeader("Content-Length", buffer.length);
         res.send(buffer);
@@ -640,15 +650,95 @@ app.post("/api/sync-database", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`=== Dracin Video Server v9 (Auto-Priority) ===`);
-    console.log(`Port: ${PORT}`);
+
+// List ready (downloaded) films
+app.get('/api/ready', (req, res) => {
+    try {
+        const videosDir = '/home/ubuntu/videos_compressed';
+        if (!fs.existsSync(videosDir)) {
+            return res.json({ films: [], total: 0 });
+        }
+        
+        const dirs = fs.readdirSync(videosDir, { withFileTypes: true })
+            .filter(d => d.isDirectory())
+            .map(d => {
+                const dramaId = d.name;
+                const dramaPath = path.join(videosDir, dramaId);
+                const files = fs.readdirSync(dramaPath).filter(f => f.endsWith('.mp4'));
+                const episodes = files.map(f => {
+                    const match = f.match(/ep(\d+)\.mp4/i);
+                    return match ? parseInt(match[1]) : null;
+                }).filter(Boolean).sort((a, b) => a - b);
+                
+                return { dramaId, episodes: episodes.length, episodeList: episodes };
+            })
+            .filter(d => d.episodes > 0)
+            .sort((a, b) => parseInt(b.dramaId) - parseInt(a.dramaId));
+        
+        res.json({ films: dirs, total: dirs.length });
+    } catch (err) {
+        console.error('Ready API error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// Force Priority - Interrupt current and process immediately
+app.post('/api/force-priority/:dramaId', (req, res) => {
+    const { dramaId } = req.params;
+    
+    // Check if drama is already downloaded
+    const dramaDir = path.join(COMPRESSED_DIR, dramaId);
+    if (fs.existsSync(dramaDir)) {
+        const files = fs.readdirSync(dramaDir).filter(f => f.endsWith('.mp4'));
+        if (files.length > 0) {
+            // Load dramas.json to check expected episodes
+            const jsonData = JSON.parse(fs.readFileSync(DRAMAS_JSON, 'utf8'));
+            const drama = jsonData.dramas_done.find(d => d.id === dramaId);
+            const expectedEps = drama ? drama.episodes : 1;
+            
+            if (files.length >= expectedEps) {
+                console.log('[FORCE-PRIORITY] Drama ' + dramaId + ' already fully downloaded (' + files.length + ' eps)');
+                return res.json({ 
+                    success: false, 
+                    message: 'Drama sudah di-download lengkap (' + files.length + ' episode)',
+                    dramaId: dramaId,
+                    downloadedEpisodes: files.length,
+                    alreadyDownloaded: true
+                });
+            }
+        }
+    }
+    
+    // Add to front of priority queue
+    priorityQueue = priorityQueue.filter(id => id !== dramaId);
+    priorityQueue.unshift(dramaId);
+    
+    // Set interrupt flag to stop current drama after current episode
+    shouldInterrupt = true;
+    interruptedDrama = downloadStats.currentDramaId;
+    
+    console.log('[FORCE-PRIORITY] Interrupting for drama ' + dramaId);
+    console.log('[FORCE-PRIORITY] Will resume drama ' + interruptedDrama + ' after priority completes');
+    
+    res.json({ 
+        success: true, 
+        message: 'Force priority set', 
+        dramaId: dramaId,
+        willResume: interruptedDrama,
+        queuePosition: 1
+    });
+});
+
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log('=== Dracin Video Server v9 (Auto-Priority) ===');
+    console.log('Port: ' + PORT);
     try {
         await getTelegramClient();
-        console.log("Telegram: READY");
-        console.log("Auto-starting download loop...");
-        startDownloadFromJSON().catch(err => console.error("Download loop fatal error:", err));
+        console.log('Telegram: READY');
+        console.log('Auto-starting download loop...');
+        startDownloadFromJSON().catch(err => console.error('Download loop fatal error:', err));
     } catch (err) {
-        console.error("Startup error:", err.message);
+        console.error('Startup error:', err.message);
     }
 });
