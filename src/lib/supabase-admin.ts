@@ -56,6 +56,24 @@ export async function getAllDramasDB(page = 1, perPage = 24): Promise<{ dramas: 
 }
 
 /**
+ * Get single drama by ID
+ */
+export async function getDramaById(id: string): Promise<DramaRecord | null> {
+    const { data, error } = await supabaseAdmin
+        .from("dramas")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+    if (error) {
+        console.error("Get drama by ID error:", error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
  * Upsert drama to cache
  */
 export async function cacheDrama(drama: DramaRecord): Promise<boolean> {

@@ -32,11 +32,11 @@ export default function DramaDetailPage({ params }: { params: Promise<{ id: stri
         async function loadData() {
             setLoading(true);
             try {
-                // Fetch drama info from Supabase via API
-                const dramaRes = await fetch(`/api/dramas?id=${id}`);
+                // Fetch drama info from Supabase via dedicated single-drama API
+                const dramaRes = await fetch(`/api/drama/${id}`);
                 const dramaData = await dramaRes.json();
-                if (dramaData.dramas && dramaData.dramas.length > 0) {
-                    setDrama(dramaData.dramas[0]);
+                if (dramaData && dramaData.id) {
+                    setDrama(dramaData);
                 } else {
                     setDrama({ id, title: `Drama ${id}` });
                 }
