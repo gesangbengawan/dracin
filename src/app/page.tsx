@@ -2,21 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Play, Film, Loader2, X, LogIn, Clock, Download } from "lucide-react";
+import { Search, Play, Film, Loader2, X, LogIn, Clock, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 interface Drama {
   id: string;
   title: string;
   poster_url?: string;
+  total_episodes?: number;
 }
 
 interface Video {
-  messageId: number;
-  title: string;
   episode: number;
-  size: number;
-  duration: number;
+  title: string;
 }
 
 export default function HomePage() {
@@ -25,11 +23,13 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null);
   const [videos, setVideos] = useState<Video[]>([]);
-  const [playingVideo, setPlayingVideo] = useState<number | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(false);
-  const [page, setPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalDramas, setTotalDramas] = useState(0);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const ITEMS_PER_PAGE = 24;
 
   // Debounced search
   const handleQueryChange = (value: string) => {
@@ -41,13 +41,13 @@ export default function HomePage() {
 
     searchTimeoutRef.current = setTimeout(() => {
       if (value.length >= 2) {
-        setPage(1);
+        setCurrentPage(1);
         fetchDramas(value, 1);
       } else if (value.length === 0) {
-        setPage(1);
+        setCurrentPage(1);
         fetchDramas("", 1);
       }
-    }, 200); // Faster debounce
+    }, 200);
   };
 
   const fetchDramas = useCallback(async (searchQuery = "", pageNum = 1) => {
@@ -56,16 +56,14 @@ export default function HomePage() {
       const params = new URLSearchParams();
       if (searchQuery) params.set("q", searchQuery);
       params.set("page", pageNum.toString());
-      params.set("limit", "24");
+      params.set("limit", ITEMS_PER_PAGE.toString());
 
       const res = await fetch(`/api/dramas?${params}`);
       const data = await res.json();
 
-      if (pageNum === 1) {
-        setDramas(data.dramas || []);
-      } else {
-        setDramas(prev => [...prev, ...(data.dramas || [])]);
-      }
+      setDramas(data.dramas || []);
+      setTotalDramas(data.total || 0);
+      setTotalPages(Math.ceil((data.total || 0) / ITEMS_PER_PAGE));
     } catch (err) {
       console.error(err);
     } finally {
@@ -79,31 +77,26 @@ export default function HomePage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
+    setCurrentPage(1);
     fetchDramas(query, 1);
   };
 
-  const loadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchDramas(query, nextPage);
+  const goToPage = (page: number) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+    fetchDramas(query, page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const selectDrama = async (drama: Drama) => {
     setSelectedDrama(drama);
     setLoadingVideos(true);
     setVideos([]);
-    setPlayingVideo(null);
 
     try {
       const res = await fetch(`/api/dramas/${drama.id}`);
       const data = await res.json();
       setVideos(data.videos || []);
-
-      // Auto-play first video if available
-      if (data.videos && data.videos.length > 0) {
-        setPlayingVideo(data.videos[0].messageId);
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -111,19 +104,29 @@ export default function HomePage() {
     }
   };
 
-  const formatSize = (bytes: number) => {
-    if (!bytes || bytes === 0) return "";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-  };
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    const maxVisible = 5;
 
-  const formatDuration = (seconds: number) => {
-    if (!seconds) return "";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    if (totalPages <= maxVisible + 2) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+
+      if (currentPage > 3) pages.push("...");
+
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+
+      for (let i = start; i <= end; i++) pages.push(i);
+
+      if (currentPage < totalPages - 2) pages.push("...");
+
+      pages.push(totalPages);
+    }
+
+    return pages;
   };
 
   return (
@@ -159,7 +162,6 @@ export default function HomePage() {
             Stream <span className="gradient-text">Asian Dramas</span>
           </motion.h2>
 
-          {/* Search Bar - FIXED ICON */}
           <motion.form
             onSubmit={handleSearch}
             initial={{ opacity: 0, y: 20 }}
@@ -176,7 +178,6 @@ export default function HomePage() {
                 placeholder="Cari judul drama..."
                 className="input-cyber w-full py-4 px-5 pr-28 text-lg"
               />
-              {/* Search button */}
               <button
                 type="submit"
                 className="btn-primary absolute right-2 top-1/2 -translate-y-1/2 py-2 px-5 flex items-center gap-2"
@@ -206,12 +207,15 @@ export default function HomePage() {
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <Film className="w-5 h-5 text-cyan-400" />
               {query ? `Hasil: "${query}"` : "Drama Terbaru"}
-              {dramas.length > 0 && (
-                <span className="text-sm text-gray-500 font-normal">
-                  ({dramas.length})
-                </span>
-              )}
+              <span className="text-sm text-gray-500 font-normal">
+                ({totalDramas} drama)
+              </span>
             </h3>
+            {!query && totalPages > 1 && (
+              <span className="text-sm text-gray-500">
+                Halaman {currentPage} dari {totalPages}
+              </span>
+            )}
           </div>
 
           {loading && dramas.length === 0 ? (
@@ -254,6 +258,11 @@ export default function HomePage() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
                         <Play className="w-8 h-8 text-white drop-shadow-lg" />
                       </div>
+                      {drama.total_episodes && (
+                        <div className="absolute top-2 right-2 bg-black/70 text-xs px-2 py-1 rounded">
+                          {drama.total_episodes} Eps
+                        </div>
+                      )}
                     </div>
                     <h4 className="font-medium text-xs line-clamp-2 group-hover:text-cyan-400 transition-colors px-1 leading-tight">
                       {drama.title}
@@ -262,15 +271,44 @@ export default function HomePage() {
                 ))}
               </div>
 
-              <div className="mt-8 text-center">
-                <button
-                  onClick={loadMore}
-                  disabled={loading}
-                  className="btn-secondary px-8"
-                >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Load More"}
-                </button>
-              </div>
+              {/* Pagination */}
+              {totalPages > 1 && !query && (
+                <div className="mt-8 flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1 || loading}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+
+                  {getPageNumbers().map((page, idx) => (
+                    typeof page === "number" ? (
+                      <button
+                        key={idx}
+                        onClick={() => goToPage(page)}
+                        disabled={loading}
+                        className={`w-10 h-10 rounded-lg font-medium transition-all ${currentPage === page
+                            ? "bg-cyan-500 text-black"
+                            : "bg-white/5 hover:bg-white/10"
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    ) : (
+                      <span key={idx} className="px-2 text-gray-500">...</span>
+                    )
+                  ))}
+
+                  <button
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages || loading}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -284,10 +322,7 @@ export default function HomePage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/95 overflow-y-auto"
-            onClick={() => {
-              setSelectedDrama(null);
-              setPlayingVideo(null);
-            }}
+            onClick={() => setSelectedDrama(null)}
           >
             <div className="min-h-screen py-8 px-4">
               <motion.div
@@ -295,7 +330,7 @@ export default function HomePage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="max-w-5xl mx-auto"
+                className="max-w-3xl mx-auto"
               >
                 {/* Header */}
                 <div className="flex items-start gap-4 mb-6">
@@ -319,34 +354,37 @@ export default function HomePage() {
                   </div>
 
                   <button
-                    onClick={() => {
-                      setSelectedDrama(null);
-                      setPlayingVideo(null);
-                    }}
+                    onClick={() => setSelectedDrama(null)}
                     className="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
                   >
                     <X className="w-6 h-6" />
                   </button>
                 </div>
 
-                {/* Video Player */}
-                {playingVideo && (
-                  <div className="video-container mb-6 rounded-xl overflow-hidden border border-cyan-500/30">
-                    <video
-                      key={playingVideo}
-                      src={`/api/stream/${playingVideo}`}
-                      controls
-                      autoPlay
-                      playsInline
-                      className="w-full h-full bg-black"
-                    />
+                {/* Episode Info */}
+                <div className="glass-card p-6 rounded-xl mb-4">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Play className="w-5 h-5 text-cyan-400" />
+                    <h4 className="font-semibold">Cara Menonton</h4>
                   </div>
-                )}
+
+                  <p className="text-gray-400 text-sm mb-4">
+                    Drama ini memiliki <span className="text-cyan-400 font-bold">{videos.length}</span> episode.
+                    Untuk menonton, kamu perlu trigger drama ini dari Telegram bot @IDShortBot.
+                  </p>
+
+                  <div className="bg-white/5 rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-2">Kirim ke Telegram:</p>
+                    <code className="text-cyan-400 text-sm break-all">
+                      /start playfirst-{selectedDrama.id}
+                    </code>
+                  </div>
+                </div>
 
                 {/* Episode List */}
                 <div className="glass-card p-4 rounded-xl">
                   <h4 className="font-semibold mb-4 text-gray-300 flex items-center gap-2">
-                    <Play className="w-4 h-4 text-cyan-400" />
+                    <Film className="w-4 h-4 text-cyan-400" />
                     Daftar Episode
                   </h4>
 
@@ -357,53 +395,20 @@ export default function HomePage() {
                   ) : videos.length === 0 ? (
                     <div className="text-center py-10">
                       <p className="text-gray-500 mb-2">
-                        Belum ada episode yang tersedia.
+                        Belum ada data episode.
                       </p>
                       <p className="text-xs text-gray-600">
-                        Drama ini belum pernah di-trigger dari Telegram.
+                        Import data JSON terlebih dahulu dari Admin Panel.
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
                       {videos.map((video) => (
                         <div
-                          key={video.messageId}
-                          className={`p-3 rounded-lg transition-all ${playingVideo === video.messageId
-                            ? "bg-cyan-500/30 border border-cyan-500"
-                            : "bg-white/5 hover:bg-white/10 border border-transparent"
-                            }`}
+                          key={video.episode}
+                          className="p-3 rounded-lg bg-white/5 text-center"
                         >
-                          <div className="flex items-center gap-2 mb-2">
-                            <Play className={`w-3 h-3 ${playingVideo === video.messageId ? "text-cyan-400" : "text-gray-400"}`} />
-                            <span className="font-medium text-sm flex-1">{video.title}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
-                            {video.duration > 0 && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDuration(video.duration)}
-                              </span>
-                            )}
-                            {video.size > 0 && (
-                              <span>{formatSize(video.size)}</span>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setPlayingVideo(video.messageId)}
-                              className="flex-1 py-1.5 px-2 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs flex items-center justify-center gap-1"
-                            >
-                              <Play className="w-3 h-3" /> Play
-                            </button>
-                            <a
-                              href={`/api/download/${video.messageId}`}
-                              download
-                              className="py-1.5 px-3 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs flex items-center justify-center gap-1"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Download className="w-3 h-3" />
-                            </a>
-                          </div>
+                          <span className="text-sm font-medium">Ep {video.episode}</span>
                         </div>
                       ))}
                     </div>
